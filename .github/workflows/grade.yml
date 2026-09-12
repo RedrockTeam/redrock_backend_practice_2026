@@ -5,7 +5,7 @@ on:
   pull_request:
 
 jobs:
-  test:
+  grade:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -14,29 +14,48 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.22'
-      - name: Run Go tests and keep JSON output
+      - name: Run tests and calculate simple score
         id: tests
         shell: bash
         run: |
           set +e
-          go test -json ./... | tee test-results.json
-          code=${PIPESTATUS[0]}
-          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
-          exit 0
-      - name: Detect data races
+          go test -json ./... > test-results.json
+          test_code=$?
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          states = {}
+          for line in Path('test-results.json').read_text(encoding='utf-8', errors='replace').splitlines():
+              try:
+                  event = json.loads(line)
+              except json.JSONDecodeError:
+                  continue
+              test = event.get('Test')
+              if test and event.get('Action') in {'pass', 'fail', 'skip'}:
+                  states[(event.get('Package', ''), test)] = event['Action']
+          passed = sum(v == 'pass' for v in states.values())
+          failed = sum(v == 'fail' for v in states.values())
+          skipped = sum(v == 'skip' for v in states.values())
+          total = passed + failed + skipped
+          score = passed * 100 // total if total else 0
+          summary = f'### Go 测试评分\n\n- 通过：{passed}\n- 失败：{failed}\n- 跳过：{skipped}\n- 积分：**{score}/100**\n'
+          Path('score.md').write_text(summary, encoding='utf-8')
+          import os
+          Path(os.environ['GITHUB_STEP_SUMMARY']).write_text(summary, encoding='utf-8')
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
+              output.write(f'score={score}\n')
+          print(summary)
+          PY
+          exit "$test_code"
+      - name: Check for data races (feedback only)
+        if: always()
         continue-on-error: true
         run: go test -race ./...
-      - name: Upload test artifact
+      - name: Upload test and score artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: go-test-json-${{ github.sha }}
-          path: test-results.json
-      - name: Publish score
-        if: always()
-        env:
-          SCORE_API_URL: ${{ secrets.SCORE_API_URL }}
-          SCORE_API_TOKEN: ${{ secrets.SCORE_API_TOKEN }}
-          STUDENT: ${{ github.actor }}
-          EXERCISE: classroom-${{ github.event.repository.name }}
-        run: python3 scripts/publish-result.py test-results.json
+          name: go-test-${{ github.sha }}
+          path: |
+            test-results.json
+            score.md

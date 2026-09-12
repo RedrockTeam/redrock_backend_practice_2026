@@ -1,5 +1,9 @@
+# AI 建议只保存在本地工作区，不进入练习仓库
+ai-suggestions/
+
+# CI 与本地产物
+test-results.json
 *.out
 coverage.out
-test-results.json
 .DS_Store
 .env
