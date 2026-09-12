@@ -8,7 +8,7 @@
 - `lesson-02-collections/`：map、方法、interface，最后观察 map 竞态；
 - `lesson-03-goroutines/`：计算机基础、goroutine、等待和结果收集；
 - `lesson-04-sync/`：channel、Mutex、WaitGroup 和 worker pool；
-- `.github/workflows/grade.yml`：唯一评分入口，复杂性留在 CI；
+- `.github/workflows/grade.yml`：唯一评分入口，复杂性留在 CI；通过仓库变量 `LESSON_PATH` 选择当前课次；
 - `ai-suggestions/`：本地 AI 讨论稿，已被 `.gitignore` 排除。
 
 ## 简单评分
@@ -19,7 +19,7 @@ CI 运行 `go test -json ./...`，按终态为 `pass` 的测试数计算：
 积分 = 通过测试数 /（通过 + 失败 + 跳过）× 100，取整
 ```
 
-编译失败或没有可统计测试时为 0 分。GitHub Classroom 直接把 workflow check 作为提交结果；若需要排行榜，后续只需读取各仓库的 check-run 结论或导出的 JSON，不需要在这里维护评分服务器。
+编译失败或没有可统计测试时为 0 分。GitHub Classroom 直接把 workflow check 作为提交结果；建立四个 Classroom template 时分别设置 `LESSON_PATH` 为四个课次。若需要排行榜，后续只需读取各仓库的 check-run 结论或导出的 JSON，不需要在这里维护评分服务器。
 
 ## 本地运行
 

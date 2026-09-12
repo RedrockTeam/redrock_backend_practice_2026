@@ -9,6 +9,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    env:
+      # 每个 Classroom assignment 将该变量设为对应课次；默认第一课。
+      LESSON_PATH: ${{ vars.LESSON_PATH || 'lesson-01-basics' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -19,7 +22,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          go test -json ./... > test-results.json
+          go test -json "./${LESSON_PATH}/..." > test-results.json
           test_code=$?
           python3 - <<'PY'
           import json
@@ -50,7 +53,7 @@ jobs:
       - name: Check for data races (feedback only)
         if: always()
         continue-on-error: true
-        run: go test -race ./...
+        run: go test -race "./${LESSON_PATH}/..."
       - name: Upload test and score artifacts
         if: always()
         uses: actions/upload-artifact@v4
