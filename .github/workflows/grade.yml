@@ -1,0 +1,42 @@
+name: grade-go-exercises
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - name: Run Go tests and keep JSON output
+        id: tests
+        shell: bash
+        run: |
+          set +e
+          go test -json ./... | tee test-results.json
+          code=${PIPESTATUS[0]}
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit 0
+      - name: Detect data races
+        continue-on-error: true
+        run: go test -race ./...
+      - name: Upload test artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-test-json-${{ github.sha }}
+          path: test-results.json
+      - name: Publish score
+        if: always()
+        env:
+          SCORE_API_URL: ${{ secrets.SCORE_API_URL }}
+          SCORE_API_TOKEN: ${{ secrets.SCORE_API_TOKEN }}
+          STUDENT: ${{ github.actor }}
+          EXERCISE: classroom-${{ github.event.repository.name }}
+        run: python3 scripts/publish-result.py test-results.json

@@ -1,0 +1,5 @@
+*.out
+coverage.out
+test-results.json
+.DS_Store
+.env
