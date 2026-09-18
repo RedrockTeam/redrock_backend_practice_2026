@@ -1,64 +1,76 @@
 name: grade-go-exercises
 
+# 每次 push、每次 Pull Request（含 fork 来的 PR）都把仓库里所有课次的
+# 所有测试目录完整跑一遍，不做任何按课次的裁剪。
+#
+# 这个 workflow 运行在「不可信」上下文里：fork 发来的 PR 拿不到本仓库的
+# secrets，token 也是只读的。所以这里只负责跑测试、产出结果，
+# 把 result.json 上报到成绩网站交给 report-result.yml（workflow_run）完成。
 on:
   push:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # 不取消进行中的运行：每一次提交都要拿到一份完整的评分结果。
+  group: grade-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
 
 jobs:
   grade:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    env:
-      # 每个 Classroom assignment 将该变量设为对应课次；默认第一课。
-      LESSON_PATH: ${{ vars.LESSON_PATH || 'lesson-01-basics' }}
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
-      - name: Run tests and calculate simple score
-        id: tests
-        shell: bash
-        run: |
-          set +e
-          go test -json "./${LESSON_PATH}/..." > test-results.json
-          test_code=$?
-          python3 - <<'PY'
-          import json
-          from pathlib import Path
-          states = {}
-          for line in Path('test-results.json').read_text(encoding='utf-8', errors='replace').splitlines():
-              try:
-                  event = json.loads(line)
-              except json.JSONDecodeError:
-                  continue
-              test = event.get('Test')
-              if test and event.get('Action') in {'pass', 'fail', 'skip'}:
-                  states[(event.get('Package', ''), test)] = event['Action']
-          passed = sum(v == 'pass' for v in states.values())
-          failed = sum(v == 'fail' for v in states.values())
-          skipped = sum(v == 'skip' for v in states.values())
-          total = passed + failed + skipped
-          score = passed * 100 // total if total else 0
-          summary = f'### Go 测试评分\n\n- 通过：{passed}\n- 失败：{failed}\n- 跳过：{skipped}\n- 积分：**{score}/100**\n'
-          Path('score.md').write_text(summary, encoding='utf-8')
-          import os
-          Path(os.environ['GITHUB_STEP_SUMMARY']).write_text(summary, encoding='utf-8')
-          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
-              output.write(f'score={score}\n')
-          print(summary)
-          PY
-          exit "$test_code"
-      - name: Check for data races (feedback only)
-        if: always()
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run every Go test package
+        id: grade
         continue-on-error: true
-        run: go test -race "./${LESSON_PATH}/..."
-      - name: Upload test and score artifacts
-        if: always()
+        env:
+          # 默认 '.' 表示整个仓库全跑；仓库变量 TEST_ROOT 只在需要临时缩小范围时设置。
+          TEST_ROOT: ${{ vars.TEST_ROOT || '.' }}
+        run: |
+          python3 .github/scripts/run_go_tests.py \
+            --root "$TEST_ROOT" \
+            --result result.json \
+            --summary score.md \
+            --raw-dir test-results
+
+      - name: Check for data races (feedback only)
+        continue-on-error: true
+        run: go test -race -count=1 ./...
+
+      # PR 号无法从 workflow_run 事件里可靠取到（fork PR 的 pull_requests 是空的），
+      # 所以在这里单独落一个文件，由 report-result.yml 去核验它。
+      - name: Record the pull request number
+        if: github.event_name == 'pull_request'
+        run: echo '${{ github.event.pull_request.number }}' > pull-request-number.txt
+
+      - name: Upload result bundle
         uses: actions/upload-artifact@v4
         with:
-          name: go-test-${{ github.sha }}
+          name: go-test-result
           path: |
-            test-results.json
+            result.json
             score.md
+            test-results/
+            pull-request-number.txt
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Fail the check when tests failed
+        if: steps.grade.outputs.status != 'pass'
+        run: |
+          echo "::error::有测试未通过，积分 ${{ steps.grade.outputs.score || 0 }}/100。详情见 Step Summary 与 go-test-result artifact。"
+          exit 1

@@ -3,7 +3,11 @@ ai-suggestions/
 
 # CI 与本地产物
 test-results.json
+result.json
+score.md
+test-results/
 *.out
 coverage.out
 .DS_Store
 .env
+pull-request-number.txt
