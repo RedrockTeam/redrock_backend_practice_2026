@@ -1,125 +1,75 @@
-# test06（结课题）：用第一课的工具做一份学生名册
+# test06：可见性与不可见性
 
-对应课件：第一课 · 第二部分（函数、循环）、第五部分（可见性）。
-**这一题是第一课到第二课的桥。** 它只用第一课学过的东西就能做完，但做完之后你会亲手量到两个「不太对劲」的地方——第二课的 map 和 interface 就是来解决它们的。
-
-## 先补两个新语法
-
-第一课的课件没讲这两样，但它们是本题的前提。只有这么多，够用了。
-
-### 1. 切片：一串同类型的值
-
-```go
-var students []Student                        // 零值是 nil，长度 0，可以直接 append
-students = append(students, Student{ID: "S001"}) // 追加一个元素，返回新的切片
-length := len(students)                       // 长度
-first := students[0]                          // 下标访问，从 0 开始
-
-for index, student := range students {        // 遍历：index 是下标，student 是这一份的副本
-	fmt.Println(index, student.Name)
-}
-
-for _, student := range students {            // 不需要下标就用 _ 丢掉它
-	fmt.Println(student.Name)
-}
-```
-
-你可以先把它当成 C 里「长度能自己变的数组」。`append` 必须写成 `s = append(s, x)`，因为它返回的是新切片。
-
-### 2. 多返回值：Go 用返回值表达「有没有」
-
-C 里查不到通常返回 `-1` 或 `NULL`。Go 直接返回两个值：
-
-```go
-func FindByID(id string) (Student, bool) {  // 返回类型写成一个括号里的列表
-	return Student{}, false                 // Student{} 是结构体的零值
-}
-
-student, ok := r.FindByID("S001")           // 一次接收两个返回值
-if !ok {
-	// 没找到
-}
-```
-
-`ok` 这个名字是 Go 的惯例，第二课查 map 的时候还会见到一模一样的写法。
+对应课件：第一课 · 第五部分（可见性的全部 8 小节）。
 
 ## 任务
 
-编辑 `roster/roster.go`，完成全部 `TODO`。
+`visibility/` 目录下有**两个源文件**，它们属于同一个包 `visibility`：
+
+- `user.go`：`User` 类型和它的方法；
+- `stage.go`：包内的小写常量 `adultAge` 和小写函数 `stage`。
+
+完成全部 `TODO`：
+
+| 标识符 | 所在文件 | 要求 |
+|---|---|---|
+| `NewUser(name, age)` | `user.go` | 同时保存 `name` 和 `age` |
+| `(*User) Age()` | `user.go` | 返回小写字段 `age` |
+| `(*User) Grow()` | `user.go` | 调用包内小写方法 `grow`，不要直接写 `u.age++` |
+| `(*User) grow()` | `user.go` | 把 `age` 加 1 |
+| `(*User) Stage()` | `user.go` | 调用 `stage(u.age)` 得到阶段字符串 |
+| `stage(age)` | `stage.go` | `age >= adultAge` 返回 `"adult"`，否则返回 `"minor"` |
+
+不要修改 `_test.go` 文件，也不要把小写标识符改成大写。
+
+## 这一题真正要你体会的
+
+Go 没有 `public` / `private` 关键字，只有一条规则：**首字母是不是大写**。
 
 ```go
-type Student struct {          // 三个字段都导出：别的包要能构造和读取
-	ID    string
-	Name  string
-	Score int
-}
-
-type Roster struct {           // 两个字段都不导出：别的包只能通过方法操作
-	students    []Student
-	comparisons int
-}
-```
-
-| 函数 | 要求 |
-|---|---|
-| `New() *Roster` | 返回一份空名册 |
-| `(*Roster) Add(Student)` | 追加到末尾；`Name` 两端的空白要用 `strings.TrimSpace` 清掉 |
-| `(*Roster) Len() int` | 记录条数 |
-| `(*Roster) FindByID(id) (Student, bool)` | 按学号线性查找；找不到返回零值和 `false` |
-| `(*Roster) TotalScoreByName(name) int` | 所有同名学生的分数之和；名册里允许同名 |
-| `(*Roster) Comparisons() int` | 累计比较次数，见下 |
-| `FormatText(*Roster) string` | 每行 `S001 Lin 90`，行尾 `\n`；空名册返回 `""` |
-| `FormatCSV(*Roster) string` | 首行表头 `id,name,score`，之后每行 `S001,Lin,90`；空名册只返回表头行 |
-
-### 关于 comparisons
-
-`FindByID` 和 `TotalScoreByName` 每**检查一条记录**，就要把 `r.comparisons` 加 1。
-
-```go
-for _, student := range r.students {
-	r.comparisons++            // 先记一次，再比较
-	if student.ID == id {
-		return student, true
-	}
+type User struct {
+	Name string // 大写：所有包可见
+	age  int    // 小写：只有 visibility 包内可见
 }
 ```
 
-所以：命中第 k 条就是 k 次，查不到就是 `Len()` 次。这不是业务功能，而是这道题的**量尺**——`TestBridge...` 系列测试会用它把线性查找的代价读出来。
-
-`comparisons` 是小写字段，外部测试包读不到，只能走 `Comparisons()` 方法。这正是 test04 的可见性规则第一次用在有意义的地方：内部计数器不对外暴露写入能力。
-
-### 为什么两个 Format 是普通函数，不是方法
-
-留意它们的签名：
+在其他包里：
 
 ```go
-func FormatText(r *Roster) string
-func FormatCSV(r *Roster) string
+u := visibility.NewUser("小登", 18)
+u.Name    // 可以
+u.Age()   // 可以
+u.age     // 编译错误：cannot refer to unexported name
+u.grow()  // 编译错误
 ```
 
-**完全一样。** 所以可以把它们放进同一个切片，用同一段代码调用：
+### 小写是「包内可见」，不是 C 的「文件内可见」
 
-```go
-for _, format := range []func(*Roster) string{FormatText, FormatCSV} {
-	fmt.Print(format(r))
-}
-```
+这是最容易搞错的一点。C 的 `static` 把可见范围锁在当前 `.c` 文件里；Go 的小写标识符在**整个包**内都能用，跨文件也可以。
 
-这是故意的，先记住这个形状。
+所以 `user.go` 里的 `Stage()` 能直接调用 `stage.go` 里的 `stage()`，不需要任何声明或 `#include`。这就是这一题特意拆成两个文件的原因。
+
+### 两个测试文件，两种视角
+
+| 文件 | `package` 声明 | 能看到什么 |
+|---|---|---|
+| `visibility_internal_test.go` | `visibility` | 小写字段 `age`、小写方法 `grow`、小写函数 `stage`、小写常量 `adultAge` |
+| `visibility_external_test.go` | `visibility_test` | 只有 `User`、`NewUser`、`Name`、`Age`、`Grow`、`Stage` |
+
+`TestAgeFieldStaysUnexported` 会用反射确认 `age` 还是小写的。反射能「看到」未导出字段的存在，但普通代码依然不能读写它——这正好说明可见性是编译期规则。
 
 ## 自己验证
 
 ```bash
 go test ./lesson-01-basics/test06/...
-go test -v -run TestBridge ./lesson-01-basics/test06/roster   # 看桥接测试打印的数字
+go test -v ./lesson-01-basics/test06/visibility
 ```
-
-`-v` 会把 `t.Log` 的内容打出来，这一题的重点信息都在那里。
 
 ## 评分点
 
 | 测试 | 检查内容 |
 |---|---|
+<<<<<<< HEAD
 | `TestAddAndLen` | `New` / `Add` / `Len` |
 | `TestAddTrimsName` | `Add` 清理了名字两端空白 |
 | `TestFindByID` | 命中与未命中，未命中时返回零值 |
@@ -160,3 +110,10 @@ go test -v -run TestBridge ./lesson-01-basics/test06/roster   # 看桥接测试�
 第三课  goroutine：并发到底是怎么跑的，谁负责等待
 第四课  channel / Mutex / WaitGroup：把并发管起来
 ```
+=======
+| `TestPackagePrivateGrow` | 同包可以调用 `grow()`，`age` 被正确递增 |
+| `TestPackagePrivateStage` | 同包可以调用另一个文件里的 `stage()` |
+| `TestExportedUserAPI` | 外部包通过 `NewUser` / `Name` / `Age` / `Grow` 正常工作 |
+| `TestExportedStage` | `Stage()` 正确转发到包内的 `stage()` |
+| `TestAgeFieldStaysUnexported` | `age` 保持未导出，没有新增导出字段 `Age` |
+>>>>>>> 1c50096 (feat(test): add lesson 01 test)

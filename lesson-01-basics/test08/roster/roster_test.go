@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"redrock/teaching-exercises/lesson-01-basics/test06/roster"
+	"redrock/teaching-exercises/lesson-01-basics/test08/roster"
 )
 
 // sample 造一份有同名学生的小名册。

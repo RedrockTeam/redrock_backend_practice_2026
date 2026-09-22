@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"redrock/teaching-exercises/lesson-01-basics/test04/visibility"
+	"redrock/teaching-exercises/lesson-01-basics/test06/visibility"
 )
 
 // 外部测试包只能通过导出的名称使用 visibility。

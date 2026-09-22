@@ -1,76 +1,88 @@
-# test04：可见性与不可见性
+# test04：把代码拆成多个包，并正确地导入
 
-对应课件：第一课 · 第五部分（可见性的全部 8 小节）。
+对应课件：第一课 · 第三部分（package 组织代码、module 标记边界、导入路径怎么来的）。
+
+前三题都写在同一个包里。真实项目不会这样——第三部分那个 `hello/calc` 的例子才是常态。这一题就是把那个例子在本仓库里真正建出来、跑起来。
+
+## 目录
+
+```text
+test04/hello/
+  calc/add.go          package calc —— 被使用的一方
+  app/app.go           package app  —— 使用别人的一方
+```
+
+课件的例子里，使用方是 `main.go`。这里换成普通的 `app` 包，因为第四部分说过：**`main` 包不能被其他包导入**，包括外部测试文件。
 
 ## 任务
 
-`visibility/` 目录下有**两个源文件**，它们属于同一个包 `visibility`：
+### 1. `calc/add.go`
 
-- `user.go`：`User` 类型和它的方法；
-- `stage.go`：包内的小写常量 `adultAge` 和小写函数 `stage`。
+| 函数 | 要求 |
+|---|---|
+| `Add(a, b int) int` | 返回两数之和。大写，别的包能调用 |
+| `helper(x int) int` | 返回 `x` 的两倍。小写，只有 `calc` 包内部能用 |
+| `AddDoubled(a, b int) int` | 两个数各翻一倍再相加，**必须调用 `helper`**，不要自己写 `*2` |
 
-完成全部 `TODO`：
+### 2. `app/app.go`
 
-| 标识符 | 所在文件 | 要求 |
-|---|---|---|
-| `NewUser(name, age)` | `user.go` | 同时保存 `name` 和 `age` |
-| `(*User) Age()` | `user.go` | 返回小写字段 `age` |
-| `(*User) Grow()` | `user.go` | 调用包内小写方法 `grow`，不要直接写 `u.age++` |
-| `(*User) grow()` | `user.go` | 把 `age` 加 1 |
-| `(*User) Stage()` | `user.go` | 调用 `stage(u.age)` 得到阶段字符串 |
-| `stage(age)` | `stage.go` | `age >= adultAge` 返回 `"adult"`，否则返回 `"minor"` |
+先补上 `import` 里缺的那一行，再完成两个函数：
 
-不要修改 `_test.go` 文件，也不要把小写标识符改成大写。
+| 函数 | 要求 |
+|---|---|
+| `Sum(a, b int) int` | 调用 `calc.Add` |
+| `Describe(a, b int) string` | 返回 `"1 + 2 = 3"` 这样一行，末尾不带换行 |
 
-## 这一题真正要你体会的
+## 导入路径是怎么算出来的
 
-Go 没有 `public` / `private` 关键字，只有一条规则：**首字母是不是大写**。
+这是这一题唯一的新知识，也是最容易写错的地方。**导入路径 = module 路径 + 包所在的子目录**。
 
-```go
-type User struct {
-	Name string // 大写：所有包可见
-	age  int    // 小写：只有 visibility 包内可见
-}
-```
-
-在其他包里：
+module 路径写在仓库根目录 `go.mod` 的第一行：
 
 ```go
-u := visibility.NewUser("小登", 18)
-u.Name    // 可以
-u.Age()   // 可以
-u.age     // 编译错误：cannot refer to unexported name
-u.grow()  // 编译错误
+module redrock/teaching-exercises
 ```
 
-### 小写是「包内可见」，不是 C 的「文件内可见」
+`calc` 包在 `lesson-01-basics/test04/hello/calc/` 目录下，于是：
 
-这是最容易搞错的一点。C 的 `static` 把可见范围锁在当前 `.c` 文件里；Go 的小写标识符在**整个包**内都能用，跨文件也可以。
+```go
+import "redrock/teaching-exercises/lesson-01-basics/test04/hello/calc"
+```
 
-所以 `user.go` 里的 `Stage()` 能直接调用 `stage.go` 里的 `stage()`，不需要任何声明或 `#include`。这就是这一题特意拆成两个文件的原因。
+导进来以后，代码里用的名字是**文件开头 `package` 声明的那个名字**，也就是 `calc`：
 
-### 两个测试文件，两种视角
+```go
+calc.Add(1, 2)
+```
 
-| 文件 | `package` 声明 | 能看到什么 |
-|---|---|---|
-| `visibility_internal_test.go` | `visibility` | 小写字段 `age`、小写方法 `grow`、小写函数 `stage`、小写常量 `adultAge` |
-| `visibility_external_test.go` | `visibility_test` | 只有 `User`、`NewUser`、`Name`、`Age`、`Grow`、`Stage` |
+两件常见的错事：
 
-`TestAgeFieldStaysUnexported` 会用反射确认 `age` 还是小写的。反射能「看到」未导出字段的存在，但普通代码依然不能读写它——这正好说明可见性是编译期规则。
+- 写成相对路径 `import "../calc"`——Go 没有这种写法；
+- 以为导入路径就是包名 `import "calc"`——那是标准库的形状，自己的包必须写全路径。
+
+包名恰好和目录名一样只是约定（课件第四部分第 3 节），语言并不强制；初学阶段让它们保持一致，能少掉很多坑。
+
+## 为什么要有 `helper`
+
+`AddDoubled` 和 `helper` 在同一个包里，所以 `AddDoubled` 可以直接调用小写的 `helper`。而 `app` 包无论怎么写都调不到它——试着在 `app.go` 里写一句 `calc.helper(1)`，编译器会告诉你 `cannot refer to unexported name`。
+
+这就是课件里说的：C 用 `static` 把可见性关在**文件**里，Go 用小写把可见性关在**包**里。第五部分（test06）会把这条规则完整展开。
 
 ## 自己验证
 
 ```bash
 go test ./lesson-01-basics/test04/...
-go test -v ./lesson-01-basics/test04/visibility
+go test -v ./lesson-01-basics/test04/hello/app
 ```
 
 ## 评分点
 
-| 测试 | 检查内容 |
-|---|---|
-| `TestPackagePrivateGrow` | 同包可以调用 `grow()`，`age` 被正确递增 |
-| `TestPackagePrivateStage` | 同包可以调用另一个文件里的 `stage()` |
-| `TestExportedUserAPI` | 外部包通过 `NewUser` / `Name` / `Age` / `Grow` 正常工作 |
-| `TestExportedStage` | `Stage()` 正确转发到包内的 `stage()` |
-| `TestAgeFieldStaysUnexported` | `age` 保持未导出，没有新增导出字段 `Age` |
+| 测试 | 所在包 | 检查内容 |
+|---|---|---|
+| `TestHelperIsVisibleInsideThePackage` | `calc`（同包测试） | 小写的 `helper` 在包内可以直接调用 |
+| `TestAddDoubledGoesThroughHelper` | `calc`（同包测试） | 结果正确，**并且**源码里确实调用了 `helper` |
+| `TestSum` | `app_test`（外部测试） | `Sum` 走 `calc.Add` 得到正确结果 |
+| `TestDescribe` | `app_test`（外部测试） | 拼出的字符串完全一致 |
+| `TestAppImportsCalcByItsFullPath` | `app_test`（外部测试） | `app.go` 用完整路径导入了 `calc` |
+
+这一题有两个包各带测试，所以 CI 上 `test04` 会显示两个测试包的结果。

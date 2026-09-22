@@ -39,3 +39,25 @@ func Describe(name string, age int) string {
 	// 字符串用 %s，整数用 %d。
 	return fmt.Sprintf("")
 }
+
+// MaxScore 是导出的常量，其他包可以用 syntax.MaxScore 读到它。
+const MaxScore = 100
+
+// minScore 是未导出的常量，只有 syntax 包内部看得见。
+const minScore = 0
+
+// Clamp 把 score 收进 [minScore, MaxScore] 区间：
+// 低于下限返回下限，高于上限返回上限，否则原样返回。
+func Clamp(score int) int {
+	// TODO: 用 if 判断两个边界，直接用上面两个常量，不要写死 0 和 100。
+	return 0
+}
+
+// InitialCount 返回一个还没开始计数的计数器的初始值。
+//
+// 要求：用 var 声明一个 int 变量，不要给它赋值，直接返回它。
+// Go 的变量未初始化时有零值：int 是 0，string 是 ""，bool 是 false。
+func InitialCount() int {
+	// TODO: 声明一个 var 变量后直接 return，别写 return 0。
+	return -1
+}

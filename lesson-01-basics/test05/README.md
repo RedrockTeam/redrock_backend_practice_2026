@@ -1,69 +1,60 @@
-# test05：亲手写第一个 Go 测试
+# test05：修好一个违反 package 规范的项目
 
-对应课件：第一课 · 第六部分（练习与提交流程）。
-
-前面四题你都是「被测试检查」，这一题你来写测试。整个课程的评分都建立在 `go test` 上，所以你至少要能读懂、写出一个测试。
+对应课件：第一课 · 第三部分（package 与 module）、第四部分（包规范）。
 
 ## 任务
 
-分两步，顺序很重要。
+`packagerules/testdata/` 下有一个**故意写错**的小项目，你要把它改到符合 Go 的包规范。
 
-### 第一步：写测试，看它失败
+```text
+packagerules/testdata/
+  package-project/            # module example.com/hello
+    go.mod
+    main.go                   # package main
+    common/name.go            # 包名过于宽泛
+    user_service/login.go     # 与同目录另一个文件包名不一致
+    user_service/register.go  # 包名大写 + 目录名带下划线
+    order/order.go            # 与 user 包互相导入
+    worker/worker.go          # 导入了 package main
+    internal/secret/secret.go # 只能被 example.com/hello 目录树导入
+  external-module/            # module example.net/outside，另一个 module
+    outside.go                # 越过边界导入了别人的 internal 包
+```
 
-`even/even.go` 里的 `IsEven` **是错的**，它漏掉了一整类输入。先编辑 `even/student_test.go`，补完 `TestIsEven`：
+每个要改的地方都留了 `// TODO` 注释。一共有五类问题：
 
-- 至少检查 `IsEven(2)`、`IsEven(3)`、`IsEven(0)`、`IsEven(-2)` 四种输入；
-- 结果和预期不一致时，用 `t.Error` / `t.Errorf` / `t.Fatal` / `t.Fatalf` 报告失败。
+1. **同一目录只能有一个包名**：`user_service/login.go` 和 `user_service/register.go` 现在声明了不同的包。
+2. **包名规范**：小写、简短、有意义，不用下划线和驼峰，不用 `common` / `util` 这类宽泛名字。本题额外要求**包名和目录名保持一致**，所以改包名时要一起改目录名，并更新所有 `import` 路径。
+3. **`main` 包不能被导入**：`worker/worker.go` 导入了 `example.com/hello`。
+4. **`internal` 边界**：`example.com/hello/internal/secret` 只能被 `example.com/hello` 及其子目录导入，`external-module/` 是另一个 module，不可以。
+5. **禁止循环导入**：现在 `order` 和用户包互相导入，需要重新设计成单向依赖。
 
-期望行为：`2` 是偶数，`3` 不是，`0` 是偶数，`-2` 也是偶数。
+## 为什么题目放在 `testdata/` 里
 
-写完先跑一次：
+`go build` 和 `go test` 会**跳过** `testdata/` 目录，所以这里可以安全地保存一个编译不通过、包名写错的项目，而不影响整个练习仓库。评分测试用 `go/parser` 读取这些文件的 `package` 声明和 `import` 列表来判断，因此：
+
+- 你改完 `testdata/` 里的代码就能被重新检查；
+- 但 `go run ./testdata/package-project` 是跑不起来的，不要尝试。
+
+## 改动提示
+
+- 目录改名后，所有引用它的 `import` 路径都要改，否则会被判为「导入了不存在的本地路径」。
+- 解决循环导入的常规办法：抽出一个更底层的公共包，或者反转其中一个方向的依赖，让依赖关系变成单向。
+- `_ "some/path"` 是空导入，只为了触发这个包的初始化。本题里它的作用只是「制造一条依赖关系」，删掉不需要的那条也是合法解法。
+
+## 自己验证
 
 ```bash
-go test -v ./lesson-01-basics/test05/even
+go test ./lesson-01-basics/test05/...
+go test -v -run TestPackageNames ./lesson-01-basics/test05/packagerules
 ```
 
-你应该看到自己写的测试**失败**了。这一步是题目的一部分，不要跳过——先让测试红，才能确认它真的在检查东西。
-
-### 第二步：修实现，让测试变绿
-
-回到 `even/even.go`，修掉 `IsEven`，再跑一次，直到全绿。
-
-## 一个 Go 测试长什么样
-
-```go
-package even          // 和被测代码同包，可以直接调用包内的一切
-
-import "testing"      // 测试用的标准库
-
-func TestIsEven(t *testing.T) {   // 必须以 Test 开头，参数是 *testing.T
-	if !IsEven(2) {
-		t.Errorf("IsEven(2) = false, want true")
-	}
-}
-```
-
-规则：
-
-- 文件名必须以 `_test.go` 结尾，否则 `go test` 不会认它；
-- 函数名必须以 `Test` 开头，后面接大写字母，参数是 `*testing.T`；
-- 不调用任何报告方法就算通过。**测试是靠「报告失败」工作的，不是靠 `return`。**
-
-| 方法 | 行为 |
-|---|---|
-| `t.Error` / `t.Errorf` | 标记失败，但继续执行后面的检查 |
-| `t.Fatal` / `t.Fatalf` | 标记失败并立刻结束这个测试函数 |
-| `t.Log` / `t.Logf` | 只打印，不影响结果；`go test -v` 才看得到 |
-
-写失败信息的惯例是 `函数调用 = 实际值, want 期望值`，这样失败输出本身就说明了问题。
-
-## 为什么还有一个 contract_test.go
-
-`contract_test.go` 用 `go/parser` 读你的 `student_test.go`，确认你真的写了那四个输入的检查，而不是只把 `t.Fatal("TODO")` 那行删掉。它不检查你的代码风格，只检查覆盖到的输入和有没有调用失败报告方法。
+失败信息会直接指出是哪个文件、哪条规则。
 
 ## 评分点
 
 | 测试 | 检查内容 |
 |---|---|
-| `TestIsEven` | 你写的测试本身要通过（也就是 `IsEven` 已被修好） |
-| `TestStudentWroteIsEvenCases` | `TestIsEven` 覆盖了 `2 / 3 / 0 / -2`，并且会报告失败 |
+| `TestPackageNamesAndDirectories` | 一个目录一个包；包名小写规范；包名与目录名一致；根目录是 `package main` |
+| `TestPackageImportBoundaries` | 导入路径真实存在；没人导入 `main` 包；`internal` 不被跨 module 导入 |
+| `TestPackagesDoNotImportEachOtherInACycle` | 依赖图中没有环 |

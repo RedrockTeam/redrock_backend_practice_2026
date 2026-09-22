@@ -50,3 +50,27 @@ func TestDescribe(t *testing.T) {
 		t.Fatalf("Describe(%q, %d) = %q, want %q", "Lin", 0, got, want)
 	}
 }
+
+func TestMaxScoreIsExported(t *testing.T) {
+	if syntax.MaxScore != 100 {
+		t.Fatalf("syntax.MaxScore = %d, want 100", syntax.MaxScore)
+	}
+}
+
+func TestClamp(t *testing.T) {
+	cases := []struct {
+		in   int
+		want int
+	}{
+		{in: 150, want: 100},
+		{in: 100, want: 100},
+		{in: 61, want: 61},
+		{in: 0, want: 0},
+		{in: -20, want: 0},
+	}
+	for _, c := range cases {
+		if got := syntax.Clamp(c.in); got != c.want {
+			t.Errorf("Clamp(%d) = %d, want %d", c.in, got, c.want)
+		}
+	}
+}

@@ -6,8 +6,8 @@
 
 | 路径 | 内容 |
 |---|---|
-| `lesson-01-basics/` | 第一课：Go 基础、package、可见性、写测试，共 6 题 |
-| `lesson-02-collections/` | 第二课：map 与 interface |
+| `lesson-01-basics/` | 第一课：Go 基础、语法迁移、package 与 module、可见性、写测试，共 8 题 |
+| `lesson-02-collections/` | 第二课：map 与 interface，最后观察 map 竞态 |
 | `lesson-03-goroutines/` | 第三课：计算机基础、goroutine、结果收集 |
 | `lesson-04-sync/` | 第四课：channel、Mutex、WaitGroup、worker pool |
 | `config.json` | **你要填的文件**：姓名、本次课次；中心站点地址老师已预置 |
