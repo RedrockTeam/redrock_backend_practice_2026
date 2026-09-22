@@ -1,5 +1,5 @@
 {
-  "name": "",
-  "lesson": "",
-  "center": "https://grade.example.com"
+  "name": "CI 冒烟测试",
+  "lesson": "lesson-01-basics",
+  "center": "http://43.139.43.212:18080"
 }

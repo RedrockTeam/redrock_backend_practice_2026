@@ -2,6 +2,9 @@
 
 站点只接收与展示报告、不做复算，所以这里是「尽力而为」的上传：
 失败会退避重试，但无论成败都不影响流水线结论（报告另有 artifact 兜底）。
+
+站点开启上报鉴权后，请求需携带 GitHub Actions OIDC 令牌（audience
+homework-center）；取不到令牌时降级为不带令牌上报，语义不变。
 """
 
 import json
@@ -15,6 +18,7 @@ TIMEOUT_SECONDS = 10
 ATTEMPTS = 3
 BACKOFF_SECONDS = (1, 3)
 REPORTS_PATH = "/api/v1/reports"
+OIDC_AUDIENCE = "homework-center"
 
 
 def optional_json(path):
@@ -104,19 +108,48 @@ def announce(line):
             handle.write(line + "\n")
 
 
+def get_oidc_token():
+    """换取 GitHub Actions OIDC 令牌；不在 Actions 环境或缺权限时返回 None。"""
+    url = os.environ.get("ACTIONS_ID_TOKEN_REQUEST_URL")
+    req_token = os.environ.get("ACTIONS_ID_TOKEN_REQUEST_TOKEN")
+    if not url or not req_token:
+        print("[warn] runner 未提供 OIDC 环境变量，上报将不带令牌")
+        return None
+    try:
+        request = urllib.request.Request(
+            url + "&audience=" + OIDC_AUDIENCE,
+            headers={"Authorization": "Bearer " + req_token},
+        )
+        with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:
+            value = json.load(response)["value"]
+            print("[info] 已取得 OIDC 令牌（audience=homework-center）")
+            return value
+    except Exception as error:
+        print(f"[warn] 取 OIDC 令牌失败: {error}")
+        return None
+
+
 def upload(url, payload):
-    request = urllib.request.Request(
-        url,
-        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
     for attempt in range(1, ATTEMPTS + 1):
+        # 每次尝试都取一枚新令牌：令牌约 5 分钟时效、不值得缓存；
+        # 收到 401 后下一轮自然会用重新换取的令牌重试。
+        headers = {"Content-Type": "application/json"}
+        token = get_oidc_token()
+        if token:
+            headers["Authorization"] = "Bearer " + token
+        request = urllib.request.Request(
+            url,
+            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
         try:
             with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:
                 return f"报告上传成功：HTTP {response.status}（第 {attempt} 次尝试）"
         except (urllib.error.URLError, OSError) as error:
             last_error = error
+            if getattr(error, "code", None) == 401:
+                print("[warn] 站点拒绝了令牌（HTTP 401），重试前将重新换取 OIDC 令牌")
             if attempt < ATTEMPTS:
                 time.sleep(BACKOFF_SECONDS[attempt - 1])
     return (f"报告上传失败（已尝试 {ATTEMPTS} 次）：{last_error}"

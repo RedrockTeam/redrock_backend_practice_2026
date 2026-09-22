@@ -17,6 +17,9 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
+      # 允许本 job 换取 GitHub OIDC 令牌：notify_center.py 上报时随请求
+      # 交给站点验签，站点据此阻断外部直接 POST 刷榜。
+      id-token: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5

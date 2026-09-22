@@ -1,7 +1,5 @@
 # 红岩网校 Go 练习仓库
 
-学生侧练习仓库，和教师课件仓库 `redrock/courseware` 完全独立。这里放题目说明、starter 代码、公开测试和 CI；不放课件讲稿、答案和评分服务实现。
-
 ## 目录
 
 | 路径 | 内容 |
@@ -60,52 +58,9 @@ push 到 **main** 之后 CI 自己跑完三件事：校验 `config.json` → **�
 |---|---|---|
 | `name` | 是 | 姓名，看板上显示用 |
 | `lesson` | 是 | 本次完成的课次，取值必须是仓库里的课节目录名，如 `lesson-01-basics` |
-| `center` | 否 | 中心站点地址，老师已预置，一般不用改 |
+| `center` | 是 | 中心站点地址，已预置，一般不用改 |
 
 `lesson` 决定这次跑哪一课。它**缺失或填错时 CI 直接报错中止**——既不跑测试，也不上报：没有明确课次的成绩无法归入任何一课。报错信息会列出所有可选课次，改好重新 push 即可。
-
-## 评分规则
-
-CI 递归发现指定课次下**所有**包含 `_test.go` 的目录（跳过 `testdata/`、`vendor/`），逐个执行 `go test -json`，然后按测试函数的终态计分：
-
-```text
-积分 = 通过的测试数 / 全部测试数 × 100，取整
-```
-
-- 每个 `TestXxx` 是一个独立评分点，子测试归并到父测试；
-- 某一道题编译失败只会产生一个 `__build__` 失败项，**不会**影响其他题目继续评分；
-- 跑起来但没走到终态（例如并发写 map 把进程打死）会归因到触发它的那个测试函数，同样记为失败。
-
-`starter` 的初始状态一定是红的，那是题目，不是环境坏了。
-
-## 上报的载荷
-
-CI 把结果压成下面这份 JSON 发给中心站点。**只留看板用得到的两件事**：这是哪一课、每道题做完没有。分数、用例名、包名、耗时、测试输出一概不进载荷——它们留在 `result.json` 与 artifact `go-test-<sha>` 里，需要时去那里取。
-
-```json
-{
-  "repo_url": "https://github.com/zhangsan/redrock_backend_practice_2026",
-  "commit": "9f2c1ab7c3d4e5f60718293a4b5c6d7e8f901234",
-  "ref": "refs/heads/main",
-  "event": "push",
-  "config": { "name": "张三", "lesson": "lesson-01-basics" },
-  "result": {
-    "lesson": "lesson-01-basics",
-    "tests": [
-      { "test": "test01", "status": "fail" },
-      { "test": "test02", "status": "pass" },
-      { "test": "test03", "status": "pass" },
-      { "test": "test04", "status": "fail" },
-      { "test": "test05", "status": "pass" },
-      { "test": "test06", "status": "pass" }
-    ]
-  }
-}
-```
-
-- `status` 只有 `pass` 与 `fail` 两种：一道题要**全部用例通过**才算 `pass`；
-- `config` 是 `config.json` 去掉 `center` 后的内容——`center` 是站点自己的地址，不必回传；
-- 站点的「完成题目数」就是 `tests` 里 `status == "pass"` 的条数，题目全集由站点从模板仓库获取。
 
 ## 上报的可靠性
 
