@@ -1,45 +1,43 @@
-name: grade-go-exercises
+name: self-test-feedback
 
-# 每次 push、每次 Pull Request（含 fork 来的 PR）都把仓库里所有课次的
-# 所有测试目录完整跑一遍，不做任何按课次的裁剪。
-#
-# 这个 workflow 运行在「不可信」上下文里：fork 发来的 PR 拿不到本仓库的
-# secrets，token 也是只读的。所以这里只负责跑测试、产出结果，
-# 把 result.json 上报到成绩网站交给 report-result.yml（workflow_run）完成。
+# 只在默认分支的 push 上跑：学生用「Use this template」建出自己的仓库，
+# 做完题 push 到 main 即触发。Pull Request、其它分支都不跑，
+# 免得同一份作业产生多份互相打架的成绩。
 on:
   push:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
-  workflow_dispatch:
-
-permissions:
-  contents: read
+    branches: [main]
 
 concurrency:
-  # 不取消进行中的运行：每一次提交都要拿到一份完整的评分结果。
-  group: grade-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: false
+  group: self-test-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  grade:
+  self-test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-
       - uses: actions/setup-go@v5
         with:
+          # 版本只写在 go.mod 一处，避免"本地能编译、CI 编译失败"。
           go-version-file: go.mod
           cache: true
 
-      - name: Run every Go test package
-        id: grade
-        continue-on-error: true
-        env:
-          # 默认 '.' 表示整个仓库全跑；仓库变量 TEST_ROOT 只在需要临时缩小范围时设置。
-          TEST_ROOT: ${{ vars.TEST_ROOT || '.' }}
+      # 课次与中心站点地址都来自仓库根目录的 config.json。
+      # 这一步把 LESSON_PATH、TEST_ROOT、CENTER_API 写进 GITHUB_ENV 供后续步骤使用。
+      # 课次缺失或非法时它直接失败、本 job 随即中止——没有明确课次就没有可计分的报告。
+      - name: 校验 config.json 并解析配置
+        id: config
+        shell: bash
+        run: python3 .github/scripts/check_config.py
+
+      # 只跑 LESSON_PATH 指定的那一课；该课下的每个 testNN 逐包独立执行，
+      # 一道题编译失败不会影响其它题继续评分。
+      - name: 按课次跑测试并评分
+        if: steps.config.outcome == 'success'
+        shell: bash
         run: |
           python3 .github/scripts/run_go_tests.py \
             --root "$TEST_ROOT" \
@@ -47,30 +45,20 @@ jobs:
             --summary score.md \
             --raw-dir test-results
 
-      - name: Check for data races (feedback only)
+      - name: 上传报告到中心站点（尽力而为）
+        if: always() && steps.config.outcome == 'success'
         continue-on-error: true
-        run: go test -race -count=1 ./...
+        shell: bash
+        run: python3 .github/scripts/notify_center.py
 
-      # PR 号无法从 workflow_run 事件里可靠取到（fork PR 的 pull_requests 是空的），
-      # 所以在这里单独落一个文件，由 report-result.yml 去核验它。
-      - name: Record the pull request number
-        if: github.event_name == 'pull_request'
-        run: echo '${{ github.event.pull_request.number }}' > pull-request-number.txt
-
-      - name: Upload result bundle
+      # 这一步失败不该让流水线变红：变红只应该代表"配置有误"或"测试没过"。
+      - name: 上传本次运行的产物
+        if: always() && steps.config.outcome == 'success'
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
-          name: go-test-result
+          name: go-test-${{ github.sha }}
           path: |
             result.json
             score.md
             test-results/
-            pull-request-number.txt
-          if-no-files-found: error
-          retention-days: 14
-
-      - name: Fail the check when tests failed
-        if: steps.grade.outputs.status != 'pass'
-        run: |
-          echo "::error::有测试未通过，积分 ${{ steps.grade.outputs.score || 0 }}/100。详情见 Step Summary 与 go-test-result artifact。"
-          exit 1

@@ -7,11 +7,12 @@
 | 路径 | 内容 |
 |---|---|
 | `lesson-01-basics/` | 第一课：Go 基础、package、可见性、写测试，共 6 题 |
-| `lesson-02-collections/` | 第二课：map 与 interface，最后观察 map 竞态 |
+| `lesson-02-collections/` | 第二课：map 与 interface |
 | `lesson-03-goroutines/` | 第三课：计算机基础、goroutine、结果收集 |
 | `lesson-04-sync/` | 第四课：channel、Mutex、WaitGroup、worker pool |
-| `.github/workflows/grade.yml` | 跑测试、产出结果 |
-| `.github/workflows/report-result.yml` | 把结果上报到成绩网站 |
+| `config.json` | **你要填的文件**：姓名、本次课次；中心站点地址老师已预置 |
+| `.github/workflows/grade.yml` | 唯一的 workflow：校验配置 → 按课次评分 → 上报 |
+| `.github/scripts/` | 评分与上报的脚本，可在本机直接运行 |
 
 每一课的目录结构都一样：
 
@@ -30,19 +31,42 @@ lesson-01-basics/
 ## 怎么做题、怎么交
 
 ```text
-① Fork 本仓库到你自己的账号
-② git clone 你的 fork，新建一个分支
-③ 按 lesson-01-basics/README.md 的顺序做题，本地 go test 跑通
-④ commit 并 push 到你的 fork
-⑤ 向本仓库发起 Pull Request
-⑥ CI 自动全量跑一遍所有测试，结果发送到成绩网站
+① 点仓库右上角的「Use this template」建出属于你自己的仓库
+② git clone 到本机
+③ 填好仓库根目录的 config.json（见下一节）
+④ 按 lesson-0X-*/README.md 的顺序做题，本机 go test 跑通
+⑤ commit 并 push 到 main
 ```
 
-第 ⑥ 步不需要你做任何事。PR 页面下方的 check 会显示通过与否，点进去能看到每道题的得分表。
+push 到 **main** 之后 CI 自己跑完三件事：校验 `config.json` → **只跑你填写的那一课** → 把成绩上报到中心站点。
+
+其它分支和 Pull Request **都不会触发**——同一份作业只会产生一份成绩，不会互相打架。想在别的分支上试，用本机的 `go test` 就好。
+
+> 用模板建出来的仓库不是 fork，GitHub Actions 默认就是开着的，不需要额外去开启。
+
+## config.json
+
+三个字段，你只需要填前两个：
+
+```json
+{
+  "name": "张三",
+  "lesson": "lesson-01-basics",
+  "center": "https://grade.example.com"
+}
+```
+
+| 字段 | 必填 | 说明 |
+|---|---|---|
+| `name` | 是 | 姓名，看板上显示用 |
+| `lesson` | 是 | 本次完成的课次，取值必须是仓库里的课节目录名，如 `lesson-01-basics` |
+| `center` | 否 | 中心站点地址，老师已预置，一般不用改 |
+
+`lesson` 决定这次跑哪一课。它**缺失或填错时 CI 直接报错中止**——既不跑测试，也不上报：没有明确课次的成绩无法归入任何一课。报错信息会列出所有可选课次，改好重新 push 即可。
 
 ## 评分规则
 
-CI 会递归发现仓库里**所有**包含 `_test.go` 的目录（跳过 `testdata/`、`vendor/`），逐个执行 `go test -json`，然后按测试函数的终态计分：
+CI 递归发现指定课次下**所有**包含 `_test.go` 的目录（跳过 `testdata/`、`vendor/`），逐个执行 `go test -json`，然后按测试函数的终态计分：
 
 ```text
 积分 = 通过的测试数 / 全部测试数 × 100，取整
@@ -50,78 +74,53 @@ CI 会递归发现仓库里**所有**包含 `_test.go` 的目录（跳过 `testd
 
 - 每个 `TestXxx` 是一个独立评分点，子测试归并到父测试；
 - 某一道题编译失败只会产生一个 `__build__` 失败项，**不会**影响其他题目继续评分；
-- 每次 push 和每次 Pull Request 都把所有课次完整跑一遍，不做按课次的裁剪。
+- 跑起来但没走到终态（例如并发写 map 把进程打死）会归因到触发它的那个测试函数，同样记为失败。
 
 `starter` 的初始状态一定是红的，那是题目，不是环境坏了。
 
-## result.json：只包含结果
+## 上报的载荷
 
-CI 产出一份 `result.json`，里面**只有结论**——状态、分数、每个测试函数的 pass/fail/skip，没有任何测试输出、日志或本地路径。完整的 `go test -json` 原始流保存在同一次运行的 `go-test-result` artifact 里，只给调试用。
+CI 把结果压成下面这份 JSON 发给中心站点。**只留看板用得到的两件事**：这是哪一课、每道题做完没有。分数、用例名、包名、耗时、测试输出一概不进载荷——它们留在 `result.json` 与 artifact `go-test-<sha>` 里，需要时去那里取。
 
 ```json
 {
-  "schema_version": "2.0",
-  "status": "fail",
-  "score": 92,
-  "submission": {
-    "result_id": "4ee19990932cb71a",
-    "repository": "redrock/teaching-exercises",
-    "head_repository": "student42/teaching-exercises",
-    "commit": "9f2c...",
-    "pull_request": 128,
-    "actor": "student42",
-    "verified": true
-  },
-  "summary": { "total": 26, "passed": 24, "failed": 2, "skipped": 0 },
-  "lessons": [
-    {
-      "lesson": "lesson-01-basics",
-      "status": "fail",
-      "score": 92,
-      "tests": [
-        {
-          "test": "test06",
-          "status": "fail",
-          "score": 80,
-          "packages": [
-            {
-              "package": "lesson-01-basics/test06/roster",
-              "status": "fail",
-              "cases": [{ "name": "TestFindByID", "status": "fail", "ms": 0 }]
-            }
-          ]
-        }
-      ]
-    }
-  ]
+  "repo_url": "https://github.com/zhangsan/redrock_backend_practice_2026",
+  "commit": "9f2c1ab7c3d4e5f60718293a4b5c6d7e8f901234",
+  "ref": "refs/heads/main",
+  "event": "push",
+  "config": { "name": "张三", "lesson": "lesson-01-basics" },
+  "result": {
+    "lesson": "lesson-01-basics",
+    "tests": [
+      { "test": "test01", "status": "fail" },
+      { "test": "test02", "status": "pass" },
+      { "test": "test03", "status": "pass" },
+      { "test": "test04", "status": "fail" },
+      { "test": "test05", "status": "pass" },
+      { "test": "test06", "status": "pass" }
+    ]
+  }
 }
 ```
 
-## 上报是怎么做到安全的
+- `status` 只有 `pass` 与 `fail` 两种：一道题要**全部用例通过**才算 `pass`；
+- `config` 是 `config.json` 去掉 `center` 后的内容——`center` 是站点自己的地址，不必回传；
+- 站点的「完成题目数」就是 `tests` 里 `status == "pass"` 的条数，题目全集由站点从模板仓库获取。
 
-fork 发来的 Pull Request 在 `pull_request` 事件里**拿不到本仓库的 secrets**，这是 GitHub 的设计。所以评分和上报拆成了两个 workflow：
+## 上报的可靠性
 
-| workflow | 触发 | 上下文 | 职责 |
-|---|---|---|---|
-| `grade.yml` | `push` / `pull_request` | fork 的不可信上下文，无 secrets | 跑测试，产出 `result.json`，存成 artifact |
-| `report-result.yml` | `workflow_run` | 基仓库上下文，可读 secrets | 取 artifact，核验身份，发送到成绩网站 |
+- **成绩是「尽力而为」的**：上传最多退避重试 3 次，失败**不影响流水线结论**，报告另随 artifact 留存，可事后补取；
+- **同一个仓库 + 同一次 commit 重复上传不会产生重复记录**（中心站点按它去重）；
+- 站点**只收集和展示**，不执行你的代码、也不做复算。因此报告上的数字是你自己仓库 CI 产出的**自报值**，看板按这个口径如实展示。
 
-`workflow_run` 始终执行默认分支上的那份 workflow 文件，学生改不了它。上报前 `stamp_result.py` 会：
+## CI 什么时候会变红
 
-- 用事件里可信的 commit、fork 名、发起人覆盖 `submission`，并据此重算 `result_id`；
-- 调 API 核验 PR 号确实指向同一个 commit，对不上就丢弃这个号；
-- 从每个测试的 pass/fail 重新计算所有 `status`、`score` 和 `summary`，改总分没有用。
+只有两种原因：
 
-配置项（未配 endpoint 时整个上报 workflow 直接跳过，不影响评分）：
+1. `config.json` 的课次缺失或填错 —— 校验步骤直接失败，后面的步骤全部跳过；
+2. 测试没过（含超时）。
 
-| 类型 | 名称 | 说明 |
-|---|---|---|
-| 仓库变量 | `RESULT_UPLOAD_ENDPOINT` | 成绩网站收件路由，如 `https://grade.example.edu/api/v1/results` |
-| 仓库变量 | `RESULT_UPLOAD_METHOD` | 可选，默认 `POST` |
-| 仓库变量 | `TEST_ROOT` | 可选，默认 `.`（全仓库）。只在需要临时缩小范围时设置 |
-| 仓库 secret | `RESULT_UPLOAD_TOKEN` | 可选，作为 `Authorization: Bearer` 发送 |
-
-请求带 `Idempotency-Key: <result_id>`，重跑同一次运行不会产生重复记录。
+上传失败、产物上传失败都**不会**让 CI 变红。
 
 ## 本地运行
 
@@ -130,11 +129,12 @@ go test ./...                                   # 全部课次
 go test ./lesson-01-basics/...                  # 一整课
 go test -v ./lesson-01-basics/test06/roster     # 一道题，带详细输出
 go test -run TestSumTo ./lesson-01-basics/test02/syntax   # 一个测试函数
-go test -race ./...                             # 竞态检测
+go test -race ./lesson-04-sync/...              # 竞态自查（CI 不跑，不计入成绩）
 go vet ./...
 
-# 在本地复现 CI 的评分过程
-python3 .github/scripts/run_go_tests.py --root .
+# 在本地复现 CI 的评分过程（先填好 config.json）
+python3 .github/scripts/check_config.py
+python3 .github/scripts/run_go_tests.py --root lesson-01-basics
 ```
 
-`-race` 的失败是课程设计的一部分：第二课会让你看到 map 的竞态，第四课再修它。
+Go 版本写在 `go.mod` 里（当前 1.25），CI 的 `setup-go` 直接跟随它，不会出现"本地能编译、CI 编译失败"。

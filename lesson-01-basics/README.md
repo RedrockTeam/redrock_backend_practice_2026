@@ -36,7 +36,7 @@ starter 的初始状态**一定是红的**，那是题目，不是环境坏了�
 
 ## 提交与评分
 
-推送或开 Pull Request 后，CI 会把仓库里**所有课次**的所有测试目录跑一遍，统计每个 `TestXxx` 的终态：
+push 到 main 之后，CI 会把 `config.json` 里 `lesson` 指定的那一课跑一遍，统计每个 `TestXxx` 的终态：
 
 ```text
 积分 = 通过的测试数 / 全部测试数 × 100，取整
