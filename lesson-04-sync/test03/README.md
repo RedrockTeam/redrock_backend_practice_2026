@@ -5,7 +5,7 @@
 
 ## 现象
 
-`ledger/ledger.go` 里的 `Ledger` 没有任何同步。它有三个问题，而且在不同的运行方式下会露出不同的脸：
+第二课 `test04` 的 `Cache.Snapshot` 已经让你看到“返回内部 map”会发生什么；这一题把它放进并发场景：`ledger/ledger.go` 里的 `Ledger` 没有任何同步，直接返回 `balances`。它有三个问题，而且在不同的运行方式下会露出不同的脸：
 
 ```bash
 # 1. 顺序测试：先看 Snapshot 的所有权问题

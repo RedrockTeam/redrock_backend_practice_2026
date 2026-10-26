@@ -5,8 +5,8 @@
 | 路径 | 内容 |
 |---|---|
 | `lesson-01-basics/` | 第一课：Go 基础、语法迁移、package 与 module、可见性、写测试，共 8 题 |
-| `lesson-02-collections/` | 第二课：map 与 interface，最后观察 map 竞态 |
-| `lesson-03-goroutines/` | 第三课：计算机基础、goroutine、结果收集 |
+| `lesson-02-collections/` | 第二课：切片语义、map、对象与 interface，最后把共享 map 交给下一课 |
+| `lesson-03-goroutines/` | 第三课：计算机基础、goroutine、并发拆分，最后观察结果缺失 |
 | `lesson-04-sync/` | 第四课：channel、Mutex、WaitGroup、worker pool |
 | `config.json` | **你要填的文件**：姓名、本次课次；中心站点地址老师已预置 |
 | `.github/workflows/grade.yml` | 唯一的 workflow：校验配置 → 按课次评分 → 上报 |

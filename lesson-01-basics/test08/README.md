@@ -151,14 +151,17 @@ go test -v -run TestBridge ./lesson-01-basics/test08/roster   # 看桥接测试�
 | 查一个人要扫 N 条 | `map[string]Student`：按 key 直接定位，`student, ok := m[id]`——和你刚写的 `(Student, bool)` 是同一个形状 |
 | 每次统计都重扫一遍 | `map[string]int`：一次遍历把所有名字的总分都攒好，之后每次查都是一步 |
 | 两个格式化函数重复同一个循环 | `interface`：把「怎么遍历」写一次，把「每行长什么样」交给不同实现；你已经见过它的雏形——两个函数共享一个签名 |
+| 切片 `append` / `range` 的语义还没分清 | `test01` 先分清窗口、副本、`range` 副本和 `append` 返回值 |
+| 共享的 `Cache` 没有锁 | `test04` 用 `Snapshot` 把所有权边界画出来；第三、四课再管并发 |
 
-第二课还会让你看到 map 的另一面：它**不是并发安全的**。两个 goroutine 同时写同一个 map，程序会直接崩。那道题会故意留着这个问题，把你送到第三课的 goroutine 和第四课的锁。
+第二课 `test04` 的 `Cache` 也**没有锁**：它在单个执行流里正确，但两个 goroutine 同时写同一个 map 就会出问题。第三课先把 goroutine 跑起来，第四课再用 `WaitGroup` 和锁把并发管起来。
 
 所以链条是这样的：
 
 ```text
 第一课  切片 + 结构体 + 可见性     ← 你在这里，量到了线性代价和重复代码
-第二课  map 消掉线性查找，interface 消掉重复循环，然后撞上 map 的并发问题
-第三课  goroutine：并发到底是怎么跑的，为什么会撞
+第二课  切片语义、map 消掉线性查找、interface 消掉重复循环，
+        最后把没有同步的 Cache 交给下一课
+第三课  goroutine：并发到底是怎么跑的，为什么函数返回后结果会缺
 第四课  channel / Mutex / WaitGroup：把并发管起来
 ```
