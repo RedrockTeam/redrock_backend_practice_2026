@@ -48,8 +48,11 @@ jobs:
             --summary score.md \
             --raw-dir test-results
 
+      # 模板仓库自己的 CI 跳过上报：它不是学生，推一次就在看板上多一条假记录。
+      # 只跳过这一步——测试与产物照常跑，模板仍能自检 workflow 是否正常。
+      # github.repository 的字符串比较不区分大小写，按官方大小写书写即可。
       - name: 上传报告到中心站点（尽力而为）
-        if: always() && steps.config.outcome == 'success'
+        if: always() && steps.config.outcome == 'success' && github.repository != 'RedrockTeam/redrock_backend_practice_2026'
         continue-on-error: true
         shell: bash
         run: python3 .github/scripts/notify_center.py
