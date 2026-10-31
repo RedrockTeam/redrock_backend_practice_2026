@@ -1,77 +1,87 @@
-# test04：可取消的任务池（从骨架开始实现）
+# test04：可取消的流水线（补全代码）
 
-对应课件：第四课 · 第三部分（`select` / `context`）、第四部分（`WaitGroup`）、第七部分第 3 小节（固定 worker 数量的任务池）。
-题型：**从骨架开始实现**。
+对应课件：第四课 · 第三部分（`select`、`context` 取消、"结果或取消"循环骨架）、第七部分第 1 小节（流水线）、第十部分 LV2。
+题型：**补全已有代码**。
+
+## 现象
+
+`pipeline/pipeline.go` 是课件里的三级流水线：
+
+```text
+Generate ──► Square ──► Filter ──► 消费者
+   │            │          │
+close(out)   close(out)  close(out)
+```
+
+每一级都已经 `defer close(out)`，消费者把结果读完时，它完全正确。问题出在**消费者提前不读了**：
+
+```go
+out := Square(ctx, Generate(ctx, 1, 2, ..., 10000))
+<-out
+<-out
+cancel() // 我只要前两个
+```
+
+先跑：
+
+```bash
+go test -v ./lesson-04-sync/test04/pipeline
+```
+
+你会看到 `TestPipelineRunsToCompletion` 通过，其余几个失败，比如：
+
+```text
+cancel() 1 秒后仍有 5 个 goroutine（开始前 3 个）；消费者不读了，上游还卡在 out <- v 上
+```
+
+每一级都传了 `ctx`，但没有一级去看它。上游 goroutine 卡在发送上，永远不会退出，这就是 **goroutine 泄漏**。服务端每个请求泄漏两个，跑一天就是几百万个。
 
 ## 任务
 
-实现 `pool/pool.go` 里的：
+只改 `pipeline/pipeline.go`，三个函数签名不变：
 
 ```go
-type Job func(context.Context) (int, error)
-
-type Result struct {
-    Index int
-    Value int
-    Err   error
-}
-
-func Run(ctx context.Context, workers int, jobs []Job) []Result
+func Generate(ctx context.Context, nums ...int) <-chan int
+func Square(ctx context.Context, in <-chan int) <-chan int
+func Filter(ctx context.Context, in <-chan int, keep func(int) bool) <-chan int
 ```
 
-这是一个固定 worker 数量的任务池。约定如下：
+要求：
 
-| 约定 | 说明 |
-|---|---|
-| 结果数量 | `len(results) == len(jobs)`，即使取消也要给没跑的任务留位置 |
-| 结果顺序 | `results[i].Index == i`，值属于 `jobs[i]`，与完成先后无关 |
-| 并发上限 | 同一时刻正在执行的任务数不超过 `workers` |
-| 取消 | `ctx` 取消后不再领取新任务；已开始的任务让它自然结束 |
-| 未启动的任务 | `Err` 设为 `ctx.Err()`，不要留下零值假装成功 |
-| 错误 | 某个任务返回错误只写进它自己的 `Err`，不自动取消其他任务 |
-| 边界 | `workers <= 0` 或 `jobs` 为空时返回空结果，不执行任务 |
-| 不泄漏 | 所有启动的 goroutine 都要有退出路径 |
+- 不取消时行为不变：值的顺序、每一级的 `close(out)` 都保持；
+- 每一级的**发送**都能被 `ctx` 取消：消费者不读了，发送方不能永远卡住；
+- 每一级的**接收**也能被 `ctx` 取消：上游一直不发也不关时，本级也要能退出；
+- 取消后 1 秒内所有 goroutine 退出，各级输出都被关闭；
+- `ctx` 一开始就已取消时，几乎不产生任何值就关闭。
 
-starter 现在能编译，但只返回一排零值；所有测试都会红。
+## 提示（不是答案）
 
-## 先跑一次
-
-```bash
-go test -v ./lesson-04-sync/test04/pool
-```
-
-失败信息会分别指出：结果下标不对、没有 worker 启动、取消后没有 `ctx.Err()` 等。不要一次改完所有东西，先让 `TestRunReturnsOrderedResults` 变绿，再加并发限制，最后处理取消。
-
-## 设计提示（不是完整代码）
-
-想清楚四件事，再动手：
-
-1. **任务从哪里来？** 一个 `jobs` channel，或者一个“下一个下标”的共享变量（后者要同步）。用 channel 更贴合本课。
-2. **worker 怎么退出？** 任务 channel 关闭后，`for index := range jobCh` 自然结束；每个 worker 结束时 `Done`。
-3. **谁来关闭任务 channel？** 投递任务的人。投递时也要能响应取消：`select { case jobCh <- i: case <-ctx.Done(): ... }`。
-4. **谁负责等待？** 一个 `WaitGroup` 等所有 worker 退出，`Run` 在 `Wait` 返回后再返回结果。不要在 worker 里 `Wait`，也不要在投递者里等自己。
-
-几个容易踩的坑：
-
-- `Add` 在启动 worker **之前**调用；
-- 结果切片按下标写，不要用 `append` 收集，否则顺序会随完成顺序变化；
-- 取消后，已经发出去但还没被 worker 取走的任务，也要有一个确定的结局；
-- 投递者本身也是一个 goroutine，`Run` 要等它退出，否则它可能在 `Run` 返回后还在写结果；
-- 不要用 `time.Sleep` 控制并发数。
+- 课件第三部分第 6 节的"结果或取消"骨架就是这一题的答案形状：一个 `for` 里套 `select`，一个分支是正常工作，另一个分支是 `<-ctx.Done()`，后者直接 `return`；
+- `for n := range in` 只在 `in` 关闭时才结束，它听不到取消。要改成 `select` 里的 `case n, ok := <-in:`，`!ok` 表示上游关了；
+- 接收到一个值以后，**发送它**又是一个可能卡住的点，所以发送也要放进 `select`；
+- `return` 会触发 `defer close(out)`，下游的接收因此结束，取消会这样一级一级传下去；
+- `Square` 和 `Filter` 的循环几乎一样。你可以写一个小写的公共函数让它们共用，这是可选的。
 
 ## 评分点
 
 | 测试 | 检查内容 |
 |---|---|
-| `TestRunReturnsOrderedResults` | 每个任务都执行；结果按 `Index` 归位；错误为空 |
-| `TestRunRespectsWorkerLimit` | 峰值并发正好不超过 `workers`；不会只启动一个 worker |
-| `TestRunKeepsPerJobErrors` | 每个任务保留自己的错误；一个失败不取消其他任务 |
-| `TestRunCancellationDoesNotHang` | 取消后 2 秒内返回；未完成任务带 `ctx.Err()` |
-| `TestRunAlreadyCanceledAndEdgeCases` | 已取消时不再执行任务；`workers = 0`、`jobs = nil` 的边界 |
-| `TestRunManyJobs` | 500 个任务时数量、顺序、值都正确 |
+| `TestPipelineRunsToCompletion` | 不取消时结果正确、输出关闭；空输入立刻关闭 |
+| `TestCancelStopsTheWholePipeline` | 读两个值后 `cancel()`、不再读，1 秒内 goroutine 数回落 |
+| `TestCancelClosesOutputPromptly` | `cancel()` 后很快关闭输出，不会把剩下的值都算完 |
+| `TestCancelUnblocksAStageWaitingOnInput` | 上游既不发也不关时，`cancel()` 也能让 `Square` 退出 |
+| `TestAlreadyCanceledContext` | 已取消的 `ctx` 几乎不产生值 |
+
+测试用 `runtime.NumGoroutine()` 观察 goroutine 有没有回落。这个方法只适合在测试里辅助观察，不要用它写业务逻辑。
 
 ## 做完以后
 
-你现在有一个能限制并发、能取消、能保留顺序的任务池。它只在一个进程里跑，任务通过 channel 送进来。
+到这里，channel 的三件事都齐了：
 
-如果任务来自**另一台机器**呢？channel 不能跨进程，`net.Conn` 才行。下一题先把“连接”抽象成一根字节流，你会看到：一旦离开 channel，“消息”这个概念就消失了，只剩字节。
+| 题目 | 解决的问题 |
+|---|---|
+| `test03` fan-in | 多个发送方，谁来关闭公共输出 |
+| `test04` 流水线 | 消费者提前离开，上游怎么停下来 |
+| `test07` 任务池 | 把上面两件事和 `WaitGroup` 组合起来 |
+
+下一题 `test05` 回到共享内存：账本的余额 map 和总额要被很多 goroutine 同时读写。那里没有"传过去就归你"的所有权可用，只能靠锁。

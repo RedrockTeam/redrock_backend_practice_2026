@@ -1,93 +1,67 @@
-# test03：共享账本（运行 → 观察 → 修复）
+# test03：合并多条车道（补全代码）
 
-对应课件：第四课 · 第一部分（计数丢失、并发写 map）、第五部分（`Mutex` / `RWMutex`、临界区）。
-题型：**运行观察现象，再修复**。
+对应课件：第四课 · 第二部分（channel、`close`、所有权）、第七部分（fan-out / fan-in）。
+题型：**补全已有代码**。
 
 ## 现象
 
-第二课 `test04` 的 `Cache.Snapshot` 已经让你看到“返回内部 map”会发生什么；这一题把它放进并发场景：`ledger/ledger.go` 里的 `Ledger` 没有任何同步，直接返回 `balances`。它有三个问题，而且在不同的运行方式下会露出不同的脸：
+`fanin/merge.go` 已经为每个输入启动了一个转发 goroutine，但**没有关闭输出**。消费者读完所有值之后，会一直等一个永远不会到来的“结束信号”。
+
+先跑：
 
 ```bash
-# 1. 顺序测试：先看 Snapshot 的所有权问题
-go test -v ./lesson-04-sync/test03/ledger
-
-# 2. 重复跑：让并发问题更容易出现
-go test -count=10 ./lesson-04-sync/test03/ledger
-
-# 3. 竞态检测：看两处访问分别在哪
-go test -race ./lesson-04-sync/test03/ledger
+go test -v ./lesson-04-sync/test03/fanin
 ```
 
-可能看到：
+你会看到测试等到超时，然后提示：
 
 ```text
-修改 snapshot 后 Balance("alice") = 999, want 10；Snapshot 不能把内部 map 直接交出去
+所有输入都结束后输出仍没有关闭；Merge 需要在所有转发 goroutine 退出后 close(out)
 ```
 
-也可能直接看到：
-
-```text
-fatal error: concurrent map writes
-```
-
-或者：
-
-```text
-WARNING: DATA RACE
-```
-
-这三个现象分别对应：
-
-| 现象 | 本质 |
-|---|---|
-| snapshot 被改，账本也变了 | `Snapshot` 把内部 map 的别名交了出去 |
-| `fatal error: concurrent map writes` | 多个 goroutine 同时写同一个 map，runtime 直接终止进程 |
-| 总额少了 / 数据竞争报告 | `total += amount` 是读-改-写三步，并发时可能丢更新 |
+这不是“慢”，而是**永远等不到**。想一想：消费者怎么知道“不会再有数据了”？
 
 ## 任务
 
-只改 `ledger/ledger.go`，让 `Ledger` 在并发下仍然正确：
+只改 `fanin/merge.go`，实现：
 
 ```go
-func (l *Ledger) Deposit(account string, amount int)
-func (l *Ledger) Balance(account string) int
-func (l *Ledger) Total() int
-func (l *Ledger) Snapshot() (map[string]int, int)
+func Merge(inputs ...<-chan int) <-chan int
 ```
 
-要求：
+约定：
 
-- 零值 `var l Ledger` 可以直接使用；
-- 多个 goroutine 同时 `Deposit` 时，不能丢更新；
-- 读也要保护：`Balance`、`Total`、`Snapshot` 不能读到写了一半的状态；
-- `Snapshot` 返回的 map 是**副本**：调用方改它不能影响账本；
-- 空账本的 `Snapshot` 也要返回一个可写的空 map，而不是 `nil`；
-- 临界区尽量只包住共享状态的读写，不要把无关的计算或 I/O 放进去。
+- 返回的 channel 由 `Merge` 负责关闭；
+- 只有当**所有输入都关闭、所有转发 goroutine 都退出**后，才能 `close(out)`；
+- `Merge` 不能关闭输入 channel：输入只由它们的所有者关闭；
+- 没有输入时，返回一个**已经关闭**的 channel；
+- 输出的顺序不限，但每个值恰好出现一次。
 
 ## 提示（不是答案）
 
-- `sync.RWMutex` 允许多个读者同时进入；写者独占。读多写少时很合适，但**先写对，再考虑优化**；
-- 不要只锁 `Deposit`：`Balance`、`Total`、`Snapshot` 也要拿锁，否则它们读到的可能是“半个新、半个旧”的状态；
-- `Snapshot` 里先在锁内把 map 复制出来，再返回；复制完就可以解锁；
-- `map` 的零值是 `nil`，不能直接写；可以在第一次 `Deposit` 时再初始化；
-- 不要复制含锁的结构体，也不要在持锁时做耗时操作。
+- 一个 `WaitGroup` 可以记录“还有几个转发 goroutine 没退出”；
+- `wg.Wait()` 不能直接写在 `Merge` 里：那样 `Merge` 会等所有输入结束才返回，就不是流式 fan-in 了。把它放进一个专门的 goroutine，等完再 `close(out)`；
+- `for value := range input` 会在输入关闭时自动结束循环，这是“上游关闭 → 本级退出”的连接点；
+- 谁 close 输出？**只有一个地方**。多处 close 会 panic，忘了 close 会让消费者永久等待。
 
 ## 评分点
 
 | 测试 | 检查内容 |
 |---|---|
-| `TestZeroValueLedger` | 零值可用；初始余额和总额为 0；能正常存款 |
-| `TestSequentialDeposits` | 多账户、多次存款的余额与总额 |
-| `TestSnapshotIsACopy` | 修改返回的 map 不影响账本；空账本返回可写 map |
-| `TestConcurrentUseKeepsInvariants` | 多写多读下总额准确；每份快照满足“账户之和 == total”；重复多轮 |
+| `TestMergeCollectsEveryValue` | 多路值一个不少、不重复；结束后输出关闭 |
+| `TestMergeClosesAfterAllInputs` | 输入都关闭后，输出也关闭 |
+| `TestMergeWithNoInputs` | 没有输入时输出立刻关闭 |
+| `TestMergeStreamsUnbufferedInputs` | 无缓冲输入下边收边转发，不要求先把所有值缓存起来 |
+| `TestMergeHandlesSingleInput` | 只有一路输入时行为也正确 |
 
 ## 做完以后
 
-这道题真正要建立的是一个习惯：**看到共享变量，先问“谁会在什么时候读写它”，再决定锁的范围**。
+这一题把“数据传递”和“结束信号”分开看：
 
-- 只锁写、不锁读，等于没同步；
-- 锁住整个函数，可能把并发退化成串行；
-- 只保护 map、不保护 total，会得到“map 对、总额错”的怪状态；
-- `Snapshot` 不复制，调用方就成了“没有拿锁的写者”。
+```text
+发送方   发送值，最后 close 自己的输出
+Merge    转发值，等所有上游结束，close 公共输出
+消费者   range 到输出关闭为止
+```
 
-下一题 `test04` 把这些工具组合起来：用 channel 发任务、用 `WaitGroup` 等 worker、用 `context` 取消、用切片下标保证结果顺序。
+下一题 `test04` 换一个方向：这里是**发送方**全部结束、由 `Merge` 关闭输出；如果是**消费者**提前不读了呢？上游会卡在发送上泄漏，需要 `select` 和 `context` 把取消传上去。

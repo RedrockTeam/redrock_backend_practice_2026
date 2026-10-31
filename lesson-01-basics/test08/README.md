@@ -148,13 +148,13 @@ go test -v -run TestBridge ./lesson-01-basics/test08/roster   # 看桥接测试�
 
 | 你在这一题遇到的 | 第二课的答案 |
 |---|---|
-| 查一个人要扫 N 条 | `map[string]Student`：按 key 直接定位，`student, ok := m[id]`——和你刚写的 `(Student, bool)` 是同一个形状 |
+| 查一个人要扫 N 条 | `test04` `map[string]Student`：按 key 直接定位，`student, ok := m[id]`——和你刚写的 `(Student, bool)` 是同一个形状 |
 | 每次统计都重扫一遍 | `map[string]int`：一次遍历把所有名字的总分都攒好，之后每次查都是一步 |
-| 两个格式化函数重复同一个循环 | `interface`：把「怎么遍历」写一次，把「每行长什么样」交给不同实现；你已经见过它的雏形——两个函数共享一个签名 |
-| 切片 `append` / `range` 的语义还没分清 | `test01` 先分清窗口、副本、`range` 副本和 `append` 返回值 |
-| 共享的 `Cache` 没有锁 | `test04` 用 `Snapshot` 把所有权边界画出来；第三、四课再管并发 |
+| 两个格式化函数重复同一个循环 | `test06` `interface`：把「怎么遍历」写一次，把「每行长什么样」交给不同实现；你已经见过它的雏形——两个函数共享一个签名 |
+| 切片 `append` / `range` 的语义还没分清 | `test01` 先讲指针和数组，`test02` 分清窗口、副本、`range` 副本和 `append` 返回值，`test03` 修切片别名 bug |
+| 共享的 `Cache` 没有锁 | `test08` 用 `Snapshot` 把所有权边界画出来；第三、四课再管并发 |
 
-第二课 `test04` 的 `Cache` 也**没有锁**：它在单个执行流里正确，但两个 goroutine 同时写同一个 map 就会出问题。第三课先把 goroutine 跑起来，第四课再用 `WaitGroup` 和锁把并发管起来。
+第二课 `test08` 的 `Cache` 也**没有锁**：它在单个执行流里正确，但两个 goroutine 同时写同一个 map 就会出问题。第三课先把 goroutine 跑起来，第四课再用 `WaitGroup` 和锁把并发管起来。
 
 所以链条是这样的：
 

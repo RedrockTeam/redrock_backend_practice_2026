@@ -2,9 +2,9 @@
 
 每个 `testNN/README.md` 是学生看到的任务边界，不含答案；公开测试就是行为契约，CI 只按测试终态给分。这份文档写给出题人，说明每道题为什么在这个位置。
 
-## 第一课：基础（8 题）
+## 第一课：基础（9 题）
 
-习题顺序就是课件的顺序，一节对一题，最后一题送去第二课。
+前八题的顺序就是课件的顺序，一节对一题，test08 送去第二课；test09 是课后进阶纠错题。
 
 | 题目 | 包 | 对应课件 | 要点 |
 |---|---|---|---|
@@ -16,6 +16,7 @@
 | `test06` | `visibility` | 第五部分 | 大小写即可见性；代码拆两个文件证明「包内可见，不是文件内可见」；反射挡住「改成大写」的绕过 |
 | `test07` | `even` | 第六部分 | 先写测试让它红，再修 `IsEven`；契约测试检查确实覆盖了 `0` 和负数 |
 | `test08` | `roster` | 综合 | 见下 |
+| `test09` | `habits` | 第二部分 + 第六部分 | 纠错：五个能编译但结果错的 C 习惯——`switch` 不贯穿、整数除法、`len` 数字节、按字节倒序拆坏汉字、`:=` 遮蔽 `err` |
 
 ### 为什么 test03 和 test04 必须存在
 
@@ -52,40 +53,69 @@
 
 顺带也把 `FormatText` / `FormatCSV` 写成了自由函数而不是方法——它们签名完全相同，离 interface 只差一步。
 
-## 第二课：集合与抽象（4 题）
+## 题量与题型
 
-四道题接第一课 `test08`，顺序是「先分清切片，再换 map，再抽 interface，最后交出共享 map」：
+每课 7〜9 题，单题 30〜60 分钟，一课总量约 5〜7 小时，足够覆盖课上练习加一周课后。每课内部难度递增，并且三种题型交替出现：
 
-- `test01`：`sliceops`。`Clone` 的独立副本、`DoubleInPlace` 的下标写回、`AppendOne` 接住 `append` 返回值；桥接测试把“切片赋值只复制窗口”量出来；
-- `test02`：`scoreboard`。用 map 一次建表，`Top` 按分数降序、姓名升序；这是第一课线性查找的答案；
-- `test03`：`formatter`。两个 formatter 落到同一个 `Formatter` 接口，`FormatAll` 只写一次遍历；这是第一课两份重复格式化循环的答案；
-- `test04`：`cache`。map 是句柄，`Snapshot` 必须复制；桥接测试用两个**各自独立**的 Cache 说明“不共享内存就安全”，把同一个 Cache 的并发读写留给第三、四课。
+| 题型 | 学生拿到什么 | 例子 |
+|---|---|---|
+| 补全 | 结构和签名已给，`TODO` 处填逻辑 | L2 test04 `scoreboard`、L4 test04 `pipeline` |
+| 代码纠错 | 能编译、看起来差不多对，但埋了 bug | L1 test09 `habits`、L2 test03 `aliasing`、L4 test06 `lazyfetch` |
+| 从零实现 | 只有类型与签名、返回零值，规格全在 README | L2 test05 `dns`、L3 test02 `toycpu`、L4 test02 `counter` |
+| 运行观察 → 修复 / 观察作答 | 先跑出现象，再修或作答 | L4 test01 `runall`、L3 test07 `missing` |
+| 写测试 | 学生自己写测试抓 bug | L1 test07 `even` |
 
-这样第二课不是“讲完 map/interface 就结束”，而是把第一课量到的两个代价消掉，同时造出一个没有同步的共享状态交给下一课。
+所有题都以「push 后 workflow 全绿」为完成标准，**没有设计成必然红的题**。
+
+## 第二课：指针、集合与抽象（8 题）
+
+接第一课 `test08`，顺序是「值还是句柄 → 切片 → map → interface → 交出共享 map」：
+
+| 题目 | 包 | 题型 | 要点 |
+|---|---|---|---|
+| `test01` | `pointer` | 补全 + 预测输出 | 数组是值、`*[3]int`、结构体指针；预测写进常量，测试对比 `demo.go` 的实际输出 |
+| `test02` | `sliceops` | 观察 → 修复 | `Clone` 独立副本、下标写回、接住 `append` 返回值 |
+| `test03` | `aliasing` | 纠错 | cap 富余时 append 原地写入、两次 append 写同一格、边删边遍历、`&v`、分段共享 cap |
+| `test04` | `scoreboard` | 补全 | map 一次建表，`Top` 分数降序、姓名升序；第一课线性查找的答案 |
+| `test05` | `dns` | 从零实现 | 正查 + 反查两张 map 同步维护，大小写与末尾 `.` 归一；桥到第五课 DNS |
+| `test06` | `formatter` | 补全 | `Formatter` 接口，`FormatAll` 只写一次遍历；第一课重复循环的答案 |
+| `test07` | `pitfalls` | 纠错 + 补全 | typed nil 进 `error`、值接收者改副本、`type switch`、`Stringer`、不可比较值的安全比较 |
+| `test08` | `cache` | 补全 + 桥接 | map 是句柄，`Snapshot` 必须复制；两个**各自独立**的 Cache 并发安全，同一个 Cache 留给第三、四课 |
 
 （评分脚本对「跑起来但没走到终态」的崩溃有专门处理：例如 `fatal error: concurrent map writes` 会打死进程、不产生任何 pass/fail 事件，此时脚本把它归因到触发它的那个测试函数，而不是笼统记成编译失败。第四课账本题会用到这条。）
 
-## 第三课：goroutine（3 题）
+## 第三课：从 CPU 到 goroutine（7 题）
 
-三题接第二课 `test04` 的 `Cache`：单执行流下它正确，多个执行流下会怎样？
+课件前半是计算机基础，后半是 goroutine。前三题不写一个 `go`，但解释后四题的所有现象：
 
-- `test01`：`asyncprint`。用 `go` 启动 worker，向 `io.Writer` 输出；源码契约检查确实出现 `go` 语句。第三课允许函数内部用 `time.Sleep` 暂时等待；
-- `test02`：`parallel`。把求和拆成两半交给两个 goroutine，写不同下标汇总；源码契约同样检查 `go`。`Sleep` 版本在 `-race` 下会报告数据竞争，这正好是第四课的入口；
-- `test03`：`missing`。启动 goroutine 写结果却立即返回，测试用 200 个元素、重复 5 轮稳定暴露缺失；源码契约禁止 `time.Sleep` 掩盖。**这一题在第三课结束时仍然是红的**，第四课 `test01` 用 `WaitGroup` 补上。
+| 题目 | 包 | 题型 | 要点 |
+|---|---|---|---|
+| `test01` | `riscv` | 补全 | 小端序拼字、位运算拆 R 型字段、反汇编 `add x8, x5, x7`（课件里的 `0x00728433`） |
+| `test02` | `toycpu` | 从零实现 | 取指 → 译码 → 执行 → 写回 → 更新 PC；最大步数、非法指令与越界错误 |
+| `test03` | `interleave` | 实现 + 观察 | 两三个线程共享内存按调度表交错，枚举全部调度：两线程 20 种里 18 种丢更新；原子 `INCR` 全部正确 → 第四课 test02 |
+| `test04` | `spawn` | 补全 | `go` 立即返回、`runtime.NumGoroutine` 量一万个 goroutine 的代价 |
+| `test05` | `asyncprint` | 观察 → 补全 | 源码契约要求出现 `go` 语句；允许函数内 `Sleep` |
+| `test06` | `parallel` | 改写 | 拆成两段并行求和；`Sleep` 版在 `-race` 下报竞争，是第四课的入口 |
+| `test07` | `missing` | 观察 + 作答 | `Collect` 的 bug **保留不修**；学生写 `Verify` 量出缺失数，并在 `answers.go` 回答观察题（测试只存答案摘要，不泄露选项）。第四课 `test01` 修它 |
 
-三题的关系是“先让协程跑起来 → 把工作拆出去 → 看见没有等待的后果”，不是三道互不相干的小题。
+`test07` 以前是「第三课结束时仍然红」的设计，和「以 workflow 跑通为准」冲突，因此改成了能在第三课知识范围内全绿的观察题；`-race` 下桥接测试自动跳过，避免学生自查时被 `Collect` 自身的竞争误报。
 
-## 第四课：同步
+## 第四课：同步（8 题）
 
-五道题按“先建立顺序 → 再明确所有权 → 最后组合”的顺序排列：
+建议课上做 test01〜04，课后做 test05〜08：
 
-- `test01`：修一个启动 goroutine 后立即返回的结果收集器，建立 `Done → Wait` 的顺序；源码契约测试禁止用 `time.Sleep` 猜时间；
-- `test02`：补全 fan-in，所有输入关闭、所有转发 goroutine 退出后，由 `Merge` 关闭公共输出；
-- `test03`：修一个没有同步的账本，覆盖丢更新、并发写 map 导致进程退出、`Snapshot` 直接交出内部 map 三个问题；
-- `test04`：从骨架实现固定 worker 数量、可取消、结果按输入下标归位的任务池；
-- `test05`：给第五课的桥。用 `net.Pipe` 把“连接”抽象成一根字节流，测试一次 `Read` 拿到多行、一行拆成多次 `Read`，让学生自己撞上“消息边界”问题；桥接测试只观察字节流现象，不要求提前掌握 TCP。
+| 题目 | 包 | 题型 | 要点 |
+|---|---|---|---|
+| `test01` | `runall` | 观察 → 修复 | 修第三课 `test07` 的“缺失的等待”，建立 `Done → Wait`；源码契约禁止 `Sleep` |
+| `test02` | `counter` | 从零实现 | 课件 LV1：`Mutex` 版与 `atomic` 版计数器，100×100 并发；接第三课 `test03` 的丢更新 |
+| `test03` | `fanin` | 补全 | 所有输入关闭、所有转发 goroutine 退出后由 `Merge` 单点 `close` |
+| `test04` | `pipeline` | 补全 | 课件 LV2：Generate → Square → Filter，每级收发都可取消，`NumGoroutine` 回落验证不泄漏 |
+| `test05` | `ledger` | 观察 → 修复 | 丢更新、并发写 map 进程退出、`Snapshot` 交出内部 map；接第二课 `test08` |
+| `test06` | `lazyfetch` | 纠错 | check-then-act 懒加载改 `sync.Once`；超时错误用 `%w` 包装；超时后无人接收的 channel 导致泄漏 |
+| `test07` | `pool` | 从骨架实现 | 固定 worker、可取消、结果按下标归位 |
+| `test08` | `wire` | 桥接 | `net.Pipe` 字节流没有消息边界，接第五课 |
 
-结课题要求功能测试全部通过，`-race` 由学生自己跑、不计入成绩。`test01` 接第三课 `test03` 的“缺失的等待”，`test03` 接第二课 `test04` 的 `Snapshot` 所有权；四课的概念在这里连成一条完整的数据流，最后通过 `test05` 接到第五课的 `net`、TCP 与 HTTP。
+`-race` 由学生自己跑、不计入成绩。四课的概念在这里连成一条完整的数据流，最后通过 `test08` 接到第五课的 `net`、TCP 与 HTTP。
 
 ## 出题时的几条约束
 

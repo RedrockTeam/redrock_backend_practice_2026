@@ -1,54 +1,56 @@
-# test01：切片是窗口，不是数据
+# test01：指针与数组——值传递还是传地址
 
-对应课件：第二课 · 指针和数组、切片（`make` / `copy` / `append` / `range`）。
-题型：**运行 → 观察 → 修复**。
+对应课件：第二课 · 指针和数组。
+题型：**补全代码 + 预测输出**（入门）。
 
-## 现象
+## 背景
 
-`sliceops/sliceops.go` 里有四个函数，其中三个藏着典型的切片坑。先跑：
+C 里数组名会退化成指针，传进函数改的就是原数组；Go 不是。Go 里**数组是值**，赋值、传参都会把整个数组复制一份。想让函数改到调用方的变量，就要显式传地址 `&x`，函数里用 `*p` 读写。
 
-```bash
-go test -v ./lesson-02-collections/test01/sliceops
-```
-
-你会看到 `Clone` 改副本把原件也改了、`DoubleInPlace` 原地乘 2 没生效、`AppendOne` 返回的长度没变。分别对应：
-
-| 现象 | 原因 |
-|---|---|
-| `clone[0] = 100` 之后 `base[0]` 也变了 | `return values` 只复制了切片头，底层数组共享 |
-| `range` 里 `value *= 2` 原切片没变 | `v` 是元素副本 |
-| `append(values, x)` 之后长度没变 | 丢了 `append` 的返回值 |
+这一题把这件事拆成六个小函数和三道预测题。
 
 ## 任务
 
-只改 `sliceops/sliceops.go`：
+### 1. 补全 `pointer/pointer.go`
 
 | 函数 | 要求 |
 |---|---|
-| `Clone(values []int) []int` | 返回独立副本；修改副本不影响原切片；`nil` 仍返回 `nil` |
-| `DoubleInPlace(values []int)` | 把每个元素乘 2，**原地修改** |
-| `AppendOne(values []int, x int) []int` | 返回追加 `x` 后的新切片，**接住 `append` 的返回值** |
-| `Sum(values []int) int` | 求和；空切片返回 0 |
+| `Inc(p *int)` | 把 `p` 指向的整数加 1；`p == nil` 时什么也不做 |
+| `Swap(a, b *int)` | 交换两个指针**指向的值** |
+| `Birthday(s *Student)` | 通过结构体指针让 `Age` 加 1 |
+| `Renamed(s Student, name string) Student` | 返回改名后的副本，调用方的 `s` 不变 |
+| `Scaled(a [3]int, k int) [3]int` | 返回每个元素乘 `k` 的新数组，原数组不变 |
+| `ScaleInPlace(a *[3]int, k int)` | 原地把调用方数组的每个元素乘 `k` |
+
+### 2. 预测 `pointer/demo.go` 的输出
+
+`demo.go` 是课件里的三段示例，**不要改它**。只读代码，把你认为的返回值写进 `predict.go` 的三个常量，格式和 `fmt.Sprint` 一致（数组 `"[1 2 3]"`，数字 `"42"`）。
+
+先写预测，再跑测试。猜错了测试会告诉你实际值；改之前先想清楚自己错在哪。
 
 ## 提示（不是答案）
 
-- 复制切片：`make([]int, len(values))` + `copy`，或者 `append([]int(nil), values...)`；
-- 原地修改必须拿到下标：`for i := range values { values[i] *= 2 }`；
-- `append` 返回的是**新的切片头**，要 `return append(values, x)`；
-- `nil` 切片可以 `range`、可以 `len`，直接返回 `nil` 也没问题。
+- `*p` 是“p 指向的那个变量”，`&x` 是“x 的地址”；
+- 先判断 `p == nil`，再解引用，否则会 panic；
+- 结构体指针访问字段可以直接写 `s.Age`，Go 自动解引用，等价于 `(*s).Age`；
+- 参数 `a [3]int` 本身就已经是副本，直接改它再返回就行；
+- `for i := range a` 对数组指针 `a *[3]int` 同样可用，`a[i]` 也会自动解引用。
 
 ## 评分点
 
 | 测试 | 检查内容 |
 |---|---|
-| `TestCloneIsIndependent` | 改副本不影响原件；`Clone(nil)` 返回 `nil` |
-| `TestDoubleInPlace` | 原地修改生效；`nil` 调用不 panic |
-| `TestAppendOne` | 返回长度正确；原切片可见部分不变；`nil` 可追加 |
-| `TestSum` | 正数、负数、空、`nil` |
-| `TestBridgeSliceAssignmentIsAWindow` | 观察 `b := a` 共享底层数组（不检查你的实现） |
+| `TestInc` | 通过指针加一；`nil` 不 panic |
+| `TestSwap` | 交换指向的值 |
+| `TestBirthdayThroughStructPointer` | 结构体指针修改字段 |
+| `TestRenamedDoesNotTouchOriginal` | 结构体值传递，原件不变 |
+| `TestArrayIsCopiedByValue` | 数组值传递，原件不变 |
+| `TestScaleInPlaceThroughArrayPointer` | 传 `*[3]int` 改到原数组 |
+| `TestPredictions` | 三个预测常量与实际输出一致 |
+| `TestBridgeArrayCopiesButSliceShares` | 观察：数组赋值复制、切片赋值共享（不检查你的实现） |
 
 ## 做完以后
 
-你已经亲手区分了“切片头”和“底层数组”。下一题 `test02` 的 `map` 也是句柄：函数里改 map 内容，外部能看到；但 map 不能像切片一样用 `append`，也不能直接比较。
+`TestBridgeArrayCopiesButSliceShares` 里同样是 `b := a`：数组复制了全部元素，切片却和原来共享数据。原因是切片头里藏着一个**指向底层数组的指针**。
 
-> 用 `-race` 跑这一题不会报错，因为这里还没有并发；第三课才会把共享状态放到多个 goroutine 下。
+下一题 `test02` 从这里开始：切片是“窗口”，不是数据本身。

@@ -1,31 +1,40 @@
 # 第四课练习：把并发管起来
 
-这一课的五道题对应课件第四课：
+这一课的八道题对应课件第四课，难度从前往后递增。建议课上做 test01〜test04，课后做 test05〜test08：
 
 | 题目 | 题型 | 主题 | 对应课件 |
 |---|---|---|---|
 | [test01](test01/) | 运行 → 观察 → 修复 | 等一组 goroutine 全部结束（`sync.WaitGroup`） | 第一部分、第四部分 |
-| [test02](test02/) | 补全代码 | 合并多个 channel、所有权与 `close` | 第二部分、第七部分 |
-| [test03](test03/) | 运行 → 观察 → 修复 | 共享内存、`Mutex` / `RWMutex`、快照副本 | 第一部分、第五部分 |
-| [test04](test04/) | 从骨架开始实现 | 固定 worker 数量的任务池、`context` 取消、结果归位 | 第三、四、七部分 |
-| [test05](test05/) | 桥接题（第五课预告） | 从 channel 走到字节流：消息边界与拆包 | 第四课全部 + 第五课 `net` |
+| [test02](test02/) | 从零实现 | 安全计数器：`Mutex` 版与 `atomic` 版 | 第一部分、第五部分、第六部分 |
+| [test03](test03/) | 补全代码 | 合并多个 channel、所有权与 `close` | 第二部分、第七部分 |
+| [test04](test04/) | 补全代码 | 可取消的流水线：`select` + `context`，不泄漏 | 第三部分、第七部分 |
+| [test05](test05/) | 运行 → 观察 → 修复 | 共享内存、`Mutex` / `RWMutex`、快照副本 | 第一部分、第五部分 |
+| [test06](test06/) | 代码纠错 | 懒加载（`sync.Once`）、超时与 goroutine 泄漏、`%w` | 第二、三、六部分 |
+| [test07](test07/) | 从骨架开始实现 | 固定 worker 数量的任务池、`context` 取消、结果归位 | 第三、四、七部分 |
+| [test08](test08/) | 桥接题（第五课预告） | 从 channel 走到字节流：消息边界与拆包 | 第四课全部 + 第五课 `net` |
 
-五道题不是五个孤立的知识点，而是一条线：
+八道题是一条线：
 
 ```text
-test01  先建立“谁等谁”的顺序
+test01  先建立“谁等谁”的顺序                      ← 第三课 test07 的 Collect
    │
-test02  再把“谁负责关闭”说清楚
+test02  读改写不是一步：锁 / 原子操作              ← 第三课 test03 的交错、test06 的竞态
    │
-test03  共享内存不能靠运气，要锁和副本
+test03  多个发送方，谁负责关闭输出
    │
-test04  把 channel、WaitGroup、context 组合成一个能取消的任务池
+test04  消费者提前离开，取消怎么一级级传上去
    │
-test05  最后发现：channel 只能在一个进程里用；
+test05  多个变量要一起一致：锁 + 副本              ← 第二课 test08 的 Snapshot
+   │
+test06  纠错：只初始化一次、超时后没人接的 channel
+   │
+test07  把 channel、WaitGroup、context 组合成一个能取消的任务池
+   │
+test08  最后发现：channel 只能在一个进程里用；
         跨进程/跨机器时，手里只剩一根没有消息边界的字节流 → 第五课
 ```
 
-`test01` 修的正是第三课 `test03` 留下的 `Collect`：函数返回时 goroutine 还没写完。`test03` 里 `Snapshot` 的所有权边界，则来自第二课 `test04` 的 `Cache`。
+`test01` 修的正是第三课 `test07` 留下的 `Collect`：函数返回时 goroutine 还没写完。`test02` 把第三课 `test03` 模拟器里一条条指令交错出来的丢更新变成真实代码。`test05` 里 `Snapshot` 的所有权边界，来自第二课 `test08` 的 `Cache`。
 
 ## 先确认环境
 
@@ -52,7 +61,7 @@ go test -run TestRunAllWaitsForEveryTask ./lesson-04-sync/test01/runall
 go test -race ./lesson-04-sync/...
 
 # 偶发问题：重复跑，逼出概率事件
-go test -count=10 ./lesson-04-sync/test03/ledger
+go test -count=10 ./lesson-04-sync/test05/ledger
 
 # 卡死时让测试尽快失败，而不是一直挂着
 go test -timeout=10s ./lesson-04-sync/...
@@ -78,7 +87,7 @@ go test -timeout=10s ./lesson-04-sync/...
 ```bash
 go test ./lesson-04-sync/...
 git add .
-git commit -m "完成第四课 test01-test05"
+git commit -m "完成第四课 test01-test08"
 git push
 ```
 
@@ -99,16 +108,20 @@ push 到 `main` 后，仓库的 CI 会按测试函数的终态评分。**它只�
 | 你遇到的问题 | 用到的工具 |
 |---|---|
 | 函数返回了，goroutine 还没跑完 | `WaitGroup` / 完成信号 channel |
+| 计数器丢更新 | `Mutex` / `atomic` |
 | 多个输入，消费者不知道什么时候结束 | `close` + 所有权规则 |
-| 计数丢失、map 崩溃、快照一半新一半旧 | `Mutex` / `RWMutex` + 副本 |
+| 消费者提前离开，上游卡住泄漏 | `select` + `context` |
+| map 崩溃、快照一半新一半旧 | `Mutex` / `RWMutex` + 副本 |
+| 初始化跑了好几次、超时后 goroutine 泄漏 | `sync.Once` + 带缓冲 channel |
 | 任务很多、要限制并发、要能取消 | `channel` + `WaitGroup` + `context` |
 | 两台机器上的程序怎么交换数据 | **下一课：网络、TCP、HTTP** |
 
-`test05` 已经让你用 `net.Pipe` 摸到了一根“像网线一样的字节管道”。下一课会解释：TCP 为什么也只是字节流、为什么需要 IP 和端口、HTTP 又怎样在这根字节流上划出请求和响应。
+`test08` 已经让你用 `net.Pipe` 摸到了一根“像网线一样的字节管道”。下一课会解释：TCP 为什么也只是字节流、为什么需要 IP 和端口、HTTP 又怎样在这根字节流上划出请求和响应。
 
 ## 不要做的事
 
 - 不要用 `time.Sleep` 猜“应该跑完了”：test01 会读源码检查；
+- 不要用 `runtime.NumGoroutine()` 写业务逻辑：test04、test06 用它只是为了在测试里观察泄漏；
 - 不要为了让测试通过而改测试、删测试或写死返回值；
 - 不要把 `sync.Mutex` 复制来复制去，也不要在持有锁时做网络/文件 I/O；
 - 不要用 `recover` 去接 `fatal error: concurrent map writes`——它接不住，正确做法是加同步。

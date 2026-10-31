@@ -1,53 +1,55 @@
-# test04：map 是句柄，Snapshot 要有所有权边界
+# test04：用 map 消掉线性查找
 
-对应课件：第二课 · map（句柄传递、`delete`、range、零值）、对象与方法。
-题型：**补全代码 + 下一课桥接**。
+对应课件：第二课 · map（创建、增删改查、`v, ok := m[k]`、range、句柄传递、key 要求）。
+题型：**补全代码**。
 
 ## 背景
 
-`Cache` 用 map 存“键 -> 值”。map 变量本身只是一个句柄：把它传给函数，函数里改内容，外面看得到；但 `Snapshot` 如果直接 `return c.values`，调用方拿到的就是内部 map，可以绕过 `Cache` 直接写。
-
-这一题先把**单执行流**下的行为做对；并发留到第三、四课。
+第一课 `test08` 的 `FindByID` 每次都从头扫名册，200 条名册查最后一个要比较 200 次。这一题用 `map` 把“按名字查总分”和“做排行榜”写成一次建表、一次排序。
 
 ## 任务
 
-编辑 `cache/cache.go`：
+编辑 `scoreboard/scoreboard.go`：
 
-| 方法 | 要求 |
-|---|---|
-| `New() *Cache` | 返回空缓存 |
-| `(*Cache) Put(key, value)` | 写入/覆盖；零值 `Cache` 也能用 |
-| `(*Cache) Get(key) (int, bool)` | 不存在返回 `0, false` |
-| `(*Cache) Delete(key)` | 删除；键不存在不 panic |
-| `(*Cache) Len() int` | 键的数量 |
-| `(*Cache) Snapshot() map[string]int` | 返回**独立副本**；空缓存也要返回可写的空 map |
+```go
+func Totals(records map[string][]int) map[string]int
+func Top(totals map[string]int, n int) []Entry
+```
+
+### Totals
+
+- 返回一张**新 map**：学生名 -> 所有成绩之和；
+- 某个学生成绩切片为空或 `nil` 时，总分为 0，但键仍保留；
+- `records` 本身不能被修改；
+- `records == nil` 时返回空 map（长度为 0 即可）。
+
+### Top
+
+- 把 `totals` 转成 `[]Entry`；
+- 按**分数降序**排序；分数相同按**姓名升序**；
+- `n <= 0` 返回空结果；`n` 大于人数时返回全部；
+- 不修改 `totals`。
 
 ## 提示（不是答案）
 
-- map 的零值是 `nil`，写之前要 `make`；`Put` 里可以 lazy 初始化；
-- 读不存在的键返回零值，必须用 `v, ok :=` 区分；
-- `delete(m, key)` 删除不存在的键不会 panic；
-- `Snapshot` 用 `make(map[string]int, len(c.values))` 再逐个复制；
-- 不要写 `return c.values`。
+- 建表：`make(map[string]int, len(records))`；
+- 读 map 区分“没有这个键”和“值是零值”，用 `v, ok := m[k]`；
+- range map 的顺序是随机的，排行榜必须显式排序；
+- 排序用 `sort.Slice`，比较函数先比分数、再比姓名；
+- 截取前 n 个之前先把 n 夹到 `len(entries)` 以内。
 
 ## 评分点
 
 | 测试 | 检查内容 |
 |---|---|
-| `TestPutGetDelete` | 增删改查、覆盖、缺失键、删除不存在键 |
-| `TestZeroValueCache` | `var c Cache` 可以直接 `Put` / `Get` / `Len` |
-| `TestSnapshotIsACopy` | 修改快照不影响缓存；空缓存返回可写空 map |
-| `TestBridgeIndependentCachesAreSafe` | 两个 goroutine 各写各的 Cache 互不影响 |
+| `TestTotalsSumsAndDoesNotMutateInput` | 累加正确；输入不被修改 |
+| `TestTotalsEmptyAndNil` | 空成绩、`nil` 成绩、`nil` 输入 |
+| `TestTopSortsByScoreThenName` | 分数降序、同分姓名升序 |
+| `TestTopEdgeCases` | `n <= 0`、`n` 超过人数、`nil` map |
+| `TestTopDoesNotMutateTotals` | 排行榜不修改原 map |
 
-## 做完以后：下一课的问题
+## 做完以后
 
-`TestBridgeIndependentCachesAreSafe` 里两个 goroutine 各用各的 `Cache`，所以安全。如果它们写的是**同一个** `Cache` 呢？
+`Totals` 把“每次查人扫一遍”变成“建表时扫一遍，之后按 key 直接查”。但排行榜需要顺序，map 本身不保留顺序——所以最后仍然要排序。
 
-```text
-goroutine A: c.Put("Lin", 95)
-goroutine B: c.Put("Lin", 100)
-```
-
-map 不是并发安全的：轻则丢更新，重则 `fatal error: concurrent map writes`。而且 `Snapshot` 即使复制了 map，复制过程中也可能看到“写了一半”的状态。
-
-第三课先把 goroutine 跑起来，看清“函数返回了，协程还没结束”的问题；第四课再用 `WaitGroup`、`Mutex` / `RWMutex` 把这些问题管起来。你在这一题写的 `Snapshot` 所有权边界，会在第四课 `test03` 的账本里原样再用一次。
+下一题 `test05` 用 map 从零写一个带反查的 DNS 缓存；`test06` 再处理第一课留下的另一半：两个格式化函数写了同样的循环，用 `interface` 把循环只写一次。

@@ -1,67 +1,72 @@
-# test02：合并多条车道（补全代码）
+# test02：安全计数器（从零实现）
 
-对应课件：第四课 · 第二部分（channel、`close`、所有权）、第七部分（fan-out / fan-in）。
-题型：**补全已有代码**。
+对应课件：第四课 · 第一部分第 2 节（读改写不是一步）、第五部分（`sync.Mutex`、临界区）、第六部分（`sync/atomic`）、第十部分 LV1。
+题型：**从零实现**。
 
-## 现象
+## 背景
 
-`fanin/merge.go` 已经为每个输入启动了一个转发 goroutine，但**没有关闭输出**。消费者读完所有值之后，会一直等一个永远不会到来的“结束信号”。
+第三课 `test03` 里，你在模拟器上一条指令一条指令地看到了丢更新：两个线程都 `LOAD` 到旧值，各自 `ADDI`，再先后 `STORE`，最后只加了一次。第三课 `test06` 的 `Sleep` 版求和也被 `-race` 点了名。
 
-先跑：
-
-```bash
-go test -v ./lesson-04-sync/test02/fanin
-```
-
-你会看到测试等到超时，然后提示：
-
-```text
-所有输入都结束后输出仍没有关闭；Merge 需要在所有转发 goroutine 退出后 close(out)
-```
-
-这不是“慢”，而是**永远等不到**。想一想：消费者怎么知道“不会再有数据了”？
+`c.n += delta` 在 Go 里就是那三条指令。这一题把它修好，而且修两遍：一遍用锁，一遍用原子操作。
 
 ## 任务
 
-只改 `fanin/merge.go`，实现：
+只改 `counter/counter.go`。两个类型对外的方法完全一样：
 
 ```go
-func Merge(inputs ...<-chan int) <-chan int
+func (c *Counter) Add(delta int)
+func (c *Counter) Value() int
+func (c *Counter) Reset()
+
+func (c *AtomicCounter) Add(delta int)
+func (c *AtomicCounter) Value() int
+func (c *AtomicCounter) Reset()
 ```
 
-约定：
+要求：
 
-- 返回的 channel 由 `Merge` 负责关闭；
-- 只有当**所有输入都关闭、所有转发 goroutine 都退出**后，才能 `close(out)`；
-- `Merge` 不能关闭输入 channel：输入只由它们的所有者关闭；
-- 没有输入时，返回一个**已经关闭**的 channel；
-- 输出的顺序不限，但每个值恰好出现一次。
+- **零值可用**：`var c Counter`、`var a AtomicCounter` 不需要构造函数就能直接用；
+- 100 个 goroutine 各 `Add(1)` 100 次，`Value()` 必须正好是 10000；
+- `Value` 和 `Reset` 也要同步，读和写同时发生时不能出错；
+- `Counter` 用 `sync.Mutex`（或 `sync.RWMutex`）；
+- `AtomicCounter` 只用 `sync/atomic`，**不能有锁字段**。
+
+结构体现在是空的，字段由你自己加。
 
 ## 提示（不是答案）
 
-- 一个 `WaitGroup` 可以记录“还有几个转发 goroutine 没退出”；
-- `wg.Wait()` 不能直接写在 `Merge` 里：那样 `Merge` 会等所有输入结束才返回，就不是流式 fan-in 了。把它放进一个专门的 goroutine，等完再 `close(out)`；
-- `for value := range input` 会在输入关闭时自动结束循环，这是“上游关闭 → 本级退出”的连接点；
-- 谁 close 输出？**只有一个地方**。多处 close 会 panic，忘了 close 会让消费者永久等待。
+- `sync.Mutex` 的零值就是一把没锁上的锁，所以只要把它作为字段，零值 `Counter` 就能用；
+- 锁只包住读写 `n` 的那一两行。`defer c.mu.Unlock()` 在有 `return` 的方法里最不容易漏；
+- Go 1.19 起有类型化的原子类型，比如 `atomic.Int64`，它的零值也能直接用。注意 `int` 和 `int64` 之间要转换；
+- 方法接收者必须是指针 `*Counter`。值接收者会把锁和计数一起复制一份，改的是副本；
+- 不要复制含锁的结构体（`c2 := *c`），`go vet` 会提示你。
 
 ## 评分点
 
 | 测试 | 检查内容 |
 |---|---|
-| `TestMergeCollectsEveryValue` | 多路值一个不少、不重复；结束后输出关闭 |
-| `TestMergeClosesAfterAllInputs` | 输入都关闭后，输出也关闭 |
-| `TestMergeWithNoInputs` | 没有输入时输出立刻关闭 |
-| `TestMergeStreamsUnbufferedInputs` | 无缓冲输入下边收边转发，不要求先把所有值缓存起来 |
-| `TestMergeHandlesSingleInput` | 只有一路输入时行为也正确 |
+| `TestZeroValueAndSequential` | 零值可用；正负 `delta`；`Reset` 后能继续用 |
+| `TestConcurrentAddDoesNotLoseUpdates` | 100 × 100 次并发 `Add(1)`，结果正好是 10000，重复 5 轮 |
+| `TestConcurrentMixedOperations` | 加、减、读同时进行，最终结果正确 |
+| `TestCounterUsesMutexAndAtomicCounterUsesAtomic` | 源码契约：`Counter` 有锁字段；`AtomicCounter` 没有锁、用了 `sync/atomic` |
+
+两个实现由同一段测试代码驱动：测试里定义了一个只含这三个方法的接口，把 `&Counter{}` 和 `&AtomicCounter{}` 都放进去。这是第二课 interface 的用法。
+
+做完后自己跑一次：
+
+```bash
+go test -race ./lesson-04-sync/test02/counter
+```
+
+CI 不跑 `-race`，但这一题应该是干净的。
 
 ## 做完以后
 
-这一题把“数据传递”和“结束信号”分开看：
+现在你有两把工具，课件第八部分的决策图会告诉你什么时候用哪个：
 
-```text
-发送方   发送值，最后 close 自己的输出
-Merge    转发值，等所有上游结束，close 公共输出
-消费者   range 到输出关闭为止
-```
+- **单个变量**（计数、标志）：`atomic` 足够，开销最小；
+- **多个变量要一起保持一致**：`atomic` 管不了，要用锁。
 
-下一题 `test03` 换一种共享方式：不再传值，而是多个 goroutine 同时改同一份内存。那时 `close` 帮不上忙，需要锁。
+第五题 `test05` 的账本就是第二种情况：每个账户的余额和总额要**一起**变。光给 `total` 换成 `atomic.Int64` 修不好它。
+
+下一题 `test03` 先换个方向：不共享内存，而是用 channel 传值。多个 channel 汇成一条时，谁来关闭输出？

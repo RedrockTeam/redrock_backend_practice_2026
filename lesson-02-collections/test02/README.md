@@ -1,55 +1,56 @@
-# test02：用 map 消掉线性查找
+# test02：切片是窗口，不是数据
 
-对应课件：第二课 · map（创建、增删改查、`v, ok := m[k]`、range、句柄传递、key 要求）。
-题型：**补全代码**。
+对应课件：第二课 · 指针和数组、切片（`make` / `copy` / `append` / `range`）。
+题型：**运行 → 观察 → 修复**。
 
-## 背景
+承接 `test01`：数组赋值复制全部元素，切片赋值只复制切片头。
 
-第一课 `test08` 的 `FindByID` 每次都从头扫名册，200 条名册查最后一个要比较 200 次。这一题用 `map` 把“按名字查总分”和“做排行榜”写成一次建表、一次排序。
+## 现象
+
+`sliceops/sliceops.go` 里有四个函数，其中三个藏着典型的切片坑。先跑：
+
+```bash
+go test -v ./lesson-02-collections/test02/sliceops
+```
+
+你会看到 `Clone` 改副本把原件也改了、`DoubleInPlace` 原地乘 2 没生效、`AppendOne` 返回的长度没变。分别对应：
+
+| 现象 | 原因 |
+|---|---|
+| `clone[0] = 100` 之后 `base[0]` 也变了 | `return values` 只复制了切片头，底层数组共享 |
+| `range` 里 `value *= 2` 原切片没变 | `v` 是元素副本 |
+| `append(values, x)` 之后长度没变 | 丢了 `append` 的返回值 |
 
 ## 任务
 
-编辑 `scoreboard/scoreboard.go`：
+只改 `sliceops/sliceops.go`：
 
-```go
-func Totals(records map[string][]int) map[string]int
-func Top(totals map[string]int, n int) []Entry
-```
-
-### Totals
-
-- 返回一张**新 map**：学生名 -> 所有成绩之和；
-- 某个学生成绩切片为空或 `nil` 时，总分为 0，但键仍保留；
-- `records` 本身不能被修改；
-- `records == nil` 时返回空 map（长度为 0 即可）。
-
-### Top
-
-- 把 `totals` 转成 `[]Entry`；
-- 按**分数降序**排序；分数相同按**姓名升序**；
-- `n <= 0` 返回空结果；`n` 大于人数时返回全部；
-- 不修改 `totals`。
+| 函数 | 要求 |
+|---|---|
+| `Clone(values []int) []int` | 返回独立副本；修改副本不影响原切片；`nil` 仍返回 `nil` |
+| `DoubleInPlace(values []int)` | 把每个元素乘 2，**原地修改** |
+| `AppendOne(values []int, x int) []int` | 返回追加 `x` 后的新切片，**接住 `append` 的返回值** |
+| `Sum(values []int) int` | 求和；空切片返回 0 |
 
 ## 提示（不是答案）
 
-- 建表：`make(map[string]int, len(records))`；
-- 读 map 区分“没有这个键”和“值是零值”，用 `v, ok := m[k]`；
-- range map 的顺序是随机的，排行榜必须显式排序；
-- 排序用 `sort.Slice`，比较函数先比分数、再比姓名；
-- 截取前 n 个之前先把 n 夹到 `len(entries)` 以内。
+- 复制切片：`make([]int, len(values))` + `copy`，或者 `append([]int(nil), values...)`；
+- 原地修改必须拿到下标：`for i := range values { values[i] *= 2 }`；
+- `append` 返回的是**新的切片头**，要 `return append(values, x)`；
+- `nil` 切片可以 `range`、可以 `len`，直接返回 `nil` 也没问题。
 
 ## 评分点
 
 | 测试 | 检查内容 |
 |---|---|
-| `TestTotalsSumsAndDoesNotMutateInput` | 累加正确；输入不被修改 |
-| `TestTotalsEmptyAndNil` | 空成绩、`nil` 成绩、`nil` 输入 |
-| `TestTopSortsByScoreThenName` | 分数降序、同分姓名升序 |
-| `TestTopEdgeCases` | `n <= 0`、`n` 超过人数、`nil` map |
-| `TestTopDoesNotMutateTotals` | 排行榜不修改原 map |
+| `TestCloneIsIndependent` | 改副本不影响原件；`Clone(nil)` 返回 `nil` |
+| `TestDoubleInPlace` | 原地修改生效；`nil` 调用不 panic |
+| `TestAppendOne` | 返回长度正确；原切片可见部分不变；`nil` 可追加 |
+| `TestSum` | 正数、负数、空、`nil` |
+| `TestBridgeSliceAssignmentIsAWindow` | 观察 `b := a` 共享底层数组（不检查你的实现） |
 
 ## 做完以后
 
-`Totals` 把“每次查人扫一遍”变成“建表时扫一遍，之后按 key 直接查”。但排行榜需要顺序，map 本身不保留顺序——所以最后仍然要排序。
+你已经亲手区分了“切片头”和“底层数组”。但这里每个函数都只用一次返回值；下一题 `test03` 让调用方**继续 append**，你会看到 cap 富余时两个切片互相覆盖的五种场景。
 
-下一题 `test03` 处理第一课留下的另一半：两个格式化函数写了同样的循环，用 `interface` 把循环只写一次。
+> 用 `-race` 跑这一题不会报错，因为这里还没有并发；第三课才会把共享状态放到多个 goroutine 下。

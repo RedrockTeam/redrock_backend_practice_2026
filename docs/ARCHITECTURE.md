@@ -35,7 +35,7 @@ grade.yml（唯一的 workflow）
 ## 目录与评分的对应关系
 
 ```text
-lesson-01-basics/test06/roster/roster_test.go
+lesson-01-basics/test08/roster/roster_test.go
 └── lesson ─┘└─ test ┘└─ package ┘
 ```
 

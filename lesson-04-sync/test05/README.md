@@ -1,133 +1,95 @@
-# test05：从 channel 到字节流（第五课预告）
+# test05：共享账本（运行 → 观察 → 修复）
 
-对应课件：第四课（channel、goroutine、关闭与取消）+ **第五课**（网络、TCP、HTTP）。
-题型：**桥接题**：先用第四课的工具处理一个“像网络连接”的东西，然后亲手撞上第五课要解决的问题。
+对应课件：第四课 · 第一部分（计数丢失、并发写 map）、第五部分（`Mutex` / `RWMutex`、临界区）。
+题型：**运行观察现象，再修复**。
 
-这题不改课件，也不要求你提前学 TCP。你只需要知道：`net.Pipe()` 返回一对**内存里的连接**，两端都能 `Read` / `Write` / `Close`。它和真实网线的共同点是——**它们都只是一根字节流，没有“消息”这个概念**。
+## 现象
 
-## 先理解“字节流”
-
-在 channel 里，发一个 `int` 就是一个 `int`，边界天然存在。连接不是这样：
-
-```text
-发送方 Write("alpha\nbeta\ngamma\n")
-                    │
-                    ▼
-接收方 Read(buf)  ← 可能一次拿到 "alpha\nbeta\ngamma\n"
-                    也可能先拿到 "alp"，下一次才拿到 "ha\nbeta\n..."
-```
-
-TCP 不保存消息边界。这就是“粘包 / 半包”的根源。HTTP 用请求行、头、`Content-Length` 或 chunked 编码来划分消息；UDP 则保留数据报边界。第五课会展开讲。
-
-## 任务
-
-只改 `wire/wire.go`，实现：
-
-```go
-type Conn interface {
-    io.Reader
-    io.Writer
-    io.Closer
-}
-
-func Serve(conn Conn) error
-func Request(conn Conn, text string) (string, error)
-```
-
-### 协议
-
-请求和响应都是**一行文本**，以 `\n` 结束：
-
-```text
-请求：hello\n
-响应：ECHO HELLO\n
-```
-
-- 服务端：每读到完整的一行，就回一行 `"ECHO " + 大写文本`；
-- 客户端：发送一行，读取**恰好一行**响应（返回值不含 `\n`）；
-- 连接正常关闭（`io.EOF`）时 `Serve` 返回 `nil`；
-- 要能处理：一次 `Read` 拿到多行、一行被拆成多次 `Read`、多个客户端同时连接。
-
-starter 把“一次 `Read`”当成“一条消息”，所以：
-
-- 单条消息能跑通；
-- 一次写入多行会错位；
-- 一行拆成两次写入会提前回包。
+第二课 `test08` 的 `Cache.Snapshot` 已经让你看到“返回内部 map”会发生什么；这一题把它放进并发场景：`ledger/ledger.go` 里的 `Ledger` 没有任何同步，直接返回 `balances`。它有三个问题，而且在不同的运行方式下会露出不同的脸：
 
 ```bash
-go test -v ./lesson-04-sync/test05/wire
+# 1. 顺序测试：先看 Snapshot 的所有权问题
+go test -v ./lesson-04-sync/test05/ledger
+
+# 2. 重复跑：让并发问题更容易出现
+go test -count=10 ./lesson-04-sync/test05/ledger
+
+# 3. 竞态检测：看两处访问分别在哪
+go test -race ./lesson-04-sync/test05/ledger
 ```
 
-## 需要的最小新工具
+可能看到：
 
-这一题要用标准库 `bufio`。它不改变协议，只是帮你把字节流按行切分：
+```text
+修改 snapshot 后 Balance("alice") = 999, want 10；Snapshot 不能把内部 map 直接交出去
+```
 
-```go
-reader := bufio.NewReader(conn)
+也可能直接看到：
 
-line, err := reader.ReadString('\n') // line 含结尾的 '\n'
-// err 可能是 io.EOF；line 里可能仍有数据，要先处理数据再处理 err
+```text
+fatal error: concurrent map writes
 ```
 
 或者：
 
-```go
-scanner := bufio.NewScanner(conn)
-for scanner.Scan() {
-    line := scanner.Text() // 不含换行符
-}
-if err := scanner.Err(); err != nil { ... }
+```text
+WARNING: DATA RACE
 ```
 
-写响应可以用：
+这三个现象分别对应：
+
+| 现象 | 本质 |
+|---|---|
+| snapshot 被改，账本也变了 | `Snapshot` 把内部 map 的别名交了出去 |
+| `fatal error: concurrent map writes` | 多个 goroutine 同时写同一个 map，runtime 直接终止进程 |
+| 总额少了 / 数据竞争报告 | `total += amount` 是读-改-写三步，并发时可能丢更新 |
+
+## 任务
+
+只改 `ledger/ledger.go`，让 `Ledger` 在并发下仍然正确：
 
 ```go
-fmt.Fprintf(conn, "ECHO %s\n", strings.ToUpper(line))
+func (l *Ledger) Deposit(account string, amount int)
+func (l *Ledger) Balance(account string) int
+func (l *Ledger) Total() int
+func (l *Ledger) Snapshot() (map[string]int, int)
 ```
 
-注意：`bufio.Reader` 会预读。严格的一问一答里，每次 `Request` 新建一个 reader 通常也能工作；但如果服务端可能连续发来多条响应，就应该让一个连接共用一个 reader，否则预读到的下一条响应可能随旧 reader 一起丢掉。
+要求：
+
+- 零值 `var l Ledger` 可以直接使用；
+- 多个 goroutine 同时 `Deposit` 时，不能丢更新；
+- 读也要保护：`Balance`、`Total`、`Snapshot` 不能读到写了一半的状态；
+- `Snapshot` 返回的 map 是**副本**：调用方改它不能影响账本；
+- 空账本的 `Snapshot` 也要返回一个可写的空 map，而不是 `nil`；
+- 临界区尽量只包住共享状态的读写，不要把无关的计算或 I/O 放进去。
 
 ## 提示（不是答案）
 
-- 服务端需要一个循环：读一行 → 处理 → 写一行 → 继续；读到 `io.EOF` 才退出；
-- 半行要留在缓冲区里等下一次读，不能“收到多少就回多少”；
-- 一次读到多行时，要逐行处理；
-- 客户端要读到 `\n` 才停，不能假设“一次 Read 就是一条响应”；
-- 多个客户端之间不要共享可变状态；每个连接有自己的 reader；
-- 如果测试卡住，先检查：写的时候对方在读吗？读的时候对方在写吗？`net.Pipe` 的读写是成对阻塞的。
+- `sync.RWMutex` 允许多个读者同时进入；写者独占。读多写少时很合适，但**先写对，再考虑优化**；
+- 不要只锁 `Deposit`：`Balance`、`Total`、`Snapshot` 也要拿锁，否则它们读到的可能是“半个新、半个旧”的状态；
+- `Snapshot` 里先在锁内把 map 复制出来，再返回；复制完就可以解锁；
+- `map` 的零值是 `nil`，不能直接写；可以在第一次 `Deposit` 时再初始化；
+- 不要复制含锁的结构体，也不要在持锁时做耗时操作。
 
 ## 评分点
 
 | 测试 | 检查内容 |
 |---|---|
-| `TestRequestResponse` | 连续多次请求/响应，协议正确 |
-| `TestServeHandlesSeveralLinesInOneRead` | 一次写入多行，服务端逐行回包 |
-| `TestServeBuffersHalfLine` | 一行拆成两次写入，服务端能拼起来 |
-| `TestConcurrentClients` | 8 个客户端并发，各自请求互不干扰 |
-| `TestServeReturnsOnClose` | 连接关闭后 `Serve` 返回，不泄漏 |
-| `TestBridgeOneReadCarriesManyMessages` | 观察原始连接：一次 `Read` 可以拿到多行 |
+| `TestZeroValueLedger` | 零值可用；初始余额和总额为 0；能正常存款 |
+| `TestSequentialDeposits` | 多账户、多次存款的余额与总额 |
+| `TestSnapshotIsACopy` | 修改返回的 map 不影响账本；空账本返回可写 map |
+| `TestConcurrentUseKeepsInvariants` | 多写多读下总额准确；每份快照满足“账户之和 == total”；重复多轮 |
 
-最后一个是“桥”测试：它不检查你的实现，而是把下一课要解释的现象直接摆在你面前。
+## 做完以后
 
-## 做完以后：第五课
+这道题真正要建立的是一个习惯：**看到共享变量，先问“谁会在什么时候读写它”，再决定锁的范围**。
 
-你现在应该能回答：
+- 只锁写、不锁读，等于没同步；
+- 锁住整个函数，可能把并发退化成串行；
+- 只保护 map、不保护 total，会得到“map 对、总额错”的怪状态；
+- `Snapshot` 不复制，调用方就成了“没有拿锁的写者”。
 
-1. 为什么 channel 里的“一条消息”，到了连接上就没了？
-2. 为什么服务端不能假设“一次 Read = 一条请求”？
-3. 如果两台机器要通信，除了“有一根能读写的管道”，还需要知道什么？
+`test02` 的计数器只有一个变量，`atomic` 就够了；账本的余额和总额要**一起**变，只能靠锁。
 
-第五课的回答：
-
-- 需要地址和端口：`net.Listen("tcp", ":8080")`、`net.Dial("tcp", "host:port")`；
-- TCP 建立连接要三次握手，断开要四次挥手；
-- TCP 是字节流，所以应用层要自己定边界；HTTP 就是一套已经定好的边界和语义；
-- `net.Conn` 正好满足这道题的 `wire.Conn`，你写的 `Serve` 可以几乎原样搬到真实连接上。
-
-```text
-第四课  channel 在一个进程内传递“值”
-   │
-test05  连接是一根字节流，没有消息边界
-   │
-第五课  IP / 端口 / TCP / HTTP：给字节流加上地址、连接和协议
-```
+下一题 `test06` 是一道纠错题：懒加载里的“先检查再赋值”、超时后没人接收的 channel，是锁和 channel 用错位置时最常见的两种线上 bug。

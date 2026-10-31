@@ -2,7 +2,17 @@
 
 **这是模板仓库，别在这里做题。** 点右上角「Use this template」→「Create a new repository」，复制一份到你自己的账号下，在那一份里做。
 
-每一课一个目录（`lesson-01-basics/` … `lesson-04-sync/`），每道题一个 `testNN/`，题目要求写在各自的 `README.md` 里。你要动的只有 `config.json` 和各题点名的 `.go` 文件。
+<<<<<<< HEAD
+| 路径 | 内容 |
+|---|---|
+| `lesson-01-basics/` | 第一课：Go 基础、语法迁移、package 与 module、可见性、写测试、纠错，共 9 题 |
+| `lesson-02-collections/` | 第二课：指针与数组、切片语义、map、对象与 interface，最后把共享 map 交给下一课，共 8 题 |
+| `lesson-03-goroutines/` | 第三课：CPU 指令与执行、线程交错、goroutine、并发拆分，最后量出结果缺失，共 7 题 |
+| `lesson-04-sync/` | 第四课：WaitGroup、Mutex/atomic、channel、可取消流水线、Once 与超时、worker pool，共 8 题 |
+| `config.json` | **你要填的文件**：姓名、本次课次；中心站点地址老师已预置 |
+| `.github/workflows/grade.yml` | 唯一的 workflow：校验配置 → 按课次评分 → 上报 |
+| `.github/scripts/` | 评分与上报的脚本，可在本机直接运行 |
+>>>>>>> eb7e90a (feat: modify test)
 
 ## 前置准备
 
@@ -58,10 +68,23 @@ git clone https://github.com/你的GitHub用户名/redrock_backend_practice_2026
 ### 做完一课怎么交
 
 ```bash
+<<<<<<< HEAD
 go test ./lesson-01-basics/...      # 先在本机确认这一课全绿
 git add .
 git commit -m "完成第一课"
 git push
+=======
+go test ./...                                   # 全部课次
+go test ./lesson-01-basics/...                  # 一整课
+go test -v ./lesson-01-basics/test08/roster     # 一道题，带详细输出
+go test -run TestSumTo ./lesson-01-basics/test02/syntax   # 一个测试函数
+go test -race ./lesson-04-sync/...              # 竞态自查（CI 不跑，不计入成绩）
+go vet ./...
+
+# 在本地复现 CI 的评分过程（先填好 config.json）
+python3 .github/scripts/check_config.py
+python3 .github/scripts/run_go_tests.py --root lesson-01-basics
+>>>>>>> eb7e90a (feat: modify test)
 ```
 
 `git commit -m` 引号里随便写，是给你自己看的说明。
