@@ -68,12 +68,10 @@ git clone https://github.com/你的GitHub用户名/redrock_backend_practice_2026
 ### 做完一课怎么交
 
 ```bash
-<<<<<<< HEAD
 go test ./lesson-01-basics/...      # 先在本机确认这一课全绿
 git add .
 git commit -m "完成第一课"
 git push
-=======
 go test ./...                                   # 全部课次
 go test ./lesson-01-basics/...                  # 一整课
 go test -v ./lesson-01-basics/test08/roster     # 一道题，带详细输出
@@ -84,7 +82,6 @@ go vet ./...
 # 在本地复现 CI 的评分过程（先填好 config.json）
 python3 .github/scripts/check_config.py
 python3 .github/scripts/run_go_tests.py --root lesson-01-basics
->>>>>>> eb7e90a (feat: modify test)
 ```
 
 `git commit -m` 引号里随便写，是给你自己看的说明。
