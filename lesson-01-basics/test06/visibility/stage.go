@@ -7,5 +7,9 @@ const adultAge = 18
 // 但 user.go 里的 Stage 方法可以直接调用它——因为它们属于同一个包。
 func stage(age int) string {
 	// TODO: age 达到 adultAge 时返回 "adult"，否则返回 "minor"。
-	return ""
+	if age >= adultAge {
+		return "adult"
+	} else {
+		return "minor"
+	}
 }
